@@ -144,10 +144,10 @@
     <span id="opv">100%</span>
   </label>
   <div class="sep"></div>
-  <label class="ctl" title="Font size (image px)">Font
+  <label class="ctl" title="Font size (image px) — ⌘+ / ⌘-">Font
     <input type="number" id="fontsize" min="6" max="400" step="1" disabled>
   </label>
-  <label class="ctl" title="Line spacing">Spacing
+  <label class="ctl" title="Line spacing — ⇧⌘+ / ⇧⌘-">Spacing
     <input type="number" id="linespace" min="0.5" max="3" step="0.1" disabled>
   </label>
   <button id="alignleft" disabled title="Align text left">⍇</button>
@@ -478,6 +478,21 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.keyCode === 90)) {
     e.preventDefault();
     performUndo();
+    return;
+  }
+  // ⌘+/⌘- font size; ⇧⌘+/⇧⌘- line spacing (browser zoom untouched
+  // when no block is selected)
+  const plus  = e.key === '=' || e.key === '+' || e.keyCode === 187;
+  const minus = e.key === '-' || e.key === '_' || e.keyCode === 189;
+  if ((e.metaKey || e.ctrlKey) && (plus || minus) && selected) {
+    e.preventDefault();
+    if (e.shiftKey) {
+      lineSpace.value = (selected.line_spacing + (plus ? 0.1 : -0.1)).toFixed(1);
+      applyLineSpace();
+    } else {
+      fontSize.value = selected.font_px + (plus ? 1 : -1);
+      applyFontSize();
+    }
     return;
   }
   if (selected && (e.key === 'Delete' || e.key === 'Backspace'
