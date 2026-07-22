@@ -46,8 +46,18 @@ HTML_PATH = Path(__file__).resolve().parent / "gui.html"
 SETTINGS_FILE = Path(__file__).resolve().parent / "gui-settings.json"
 
 STATE = {"files": [], "out": None,   # out: forced output dir (else input dir)
-         "save_dir": None,           # folder chosen via "Save current as…"
-         "save_paths": {}}           # page idx -> exact path chosen for it
+         "save_dir": None,           # folder chosen via a save dialog
+         "save_paths": {},           # page idx -> exact path chosen for it
+         "format_key": None}         # output format chosen at first save
+
+# frontend format key -> (save_output fmt dict, file extension)
+FORMAT_MAP = {
+    "png":    ({"kind": "png"}, ".png"),
+    "png8":   ({"kind": "png8"}, ".png"),
+    "jpeg60": ({"kind": "jpeg", "quality": 60}, ".jpg"),
+    "jpeg30": ({"kind": "jpeg", "quality": 30}, ".jpg"),
+    "jpeg10": ({"kind": "jpeg", "quality": 10}, ".jpg"),
+}
 LOCK = threading.Lock()              # serializes OCR/translate + cache writes
 
 _lang_lists = None                   # cached (ocr_langs, translate_langs)
@@ -190,17 +200,20 @@ def add_block(idx, fields):
 
 
 def render_png(idx):
-    """Bake <stem>_<target>.png for one page, honoring GUI edits
-    (process_page renders GUI-edited blocks exactly as shown).
-    After a "Save current as…", saves keep going to the chosen place:
-    the exact path for that page, the chosen folder for other pages.
-    Returns the written Path."""
+    """Bake one page, honoring GUI edits, to the location and format
+    chosen at the first save (exact path for that page if one was picked,
+    else the chosen folder).  Returns the written Path, or None when no
+    save target was chosen yet (caller shows the save dialog)."""
     src = STATE["files"][idx]
+    fmt, ext = FORMAT_MAP[STATE["format_key"] or "png"]
     out_png = STATE["save_paths"].get(idx)
     if not out_png and STATE["save_dir"]:
-        out_png = STATE["save_dir"] / f"{src.stem}_{tp.TARGET_LANG}.png"
+        out_png = STATE["save_dir"] / f"{src.stem}_{tp.TARGET_LANG}{ext}"
+    if not out_png:
+        return None
     with LOCK:
-        return tp.process_page(src, out_dir_for(src), out_png=out_png)
+        return tp.process_page(src, out_dir_for(src), out_png=out_png,
+                               fmt=fmt)
 
 
 def save_edits(idx, edits):
@@ -327,27 +340,50 @@ class Handler(BaseHTTPRequestHandler):
             elif (parts[:2] == ["api", "page"] and len(parts) == 4
                     and parts[3] == "render"):
                 out = render_png(int(parts[2]))
-                self._send(200, {"file": out.name, "dir": str(out.parent)})
+                if out is None:      # first save: frontend runs the dialog
+                    self._send(200, {"need_dialog": True})
+                else:
+                    self._send(200, {"file": out.name,
+                                     "dir": str(out.parent)})
             elif (parts[:2] == ["api", "page"] and len(parts) == 4
                     and parts[3] == "render_as"):
-                src = STATE["files"][int(parts[2])]
-                path = choose_save_path(f"{src.stem}_{tp.TARGET_LANG}.png")
+                idx = int(parts[2])
+                src = STATE["files"][idx]
+                key = self._json_body().get("format") or "png"
+                fmt, ext = FORMAT_MAP[key]
+                path = choose_save_path(f"{src.stem}_{tp.TARGET_LANG}{ext}")
                 if not path:
                     self._send(200, {"cancelled": True})
                     return
-                if not re.search(r"\.(png|jpe?g|tiff?|bmp)$", path, re.I):
-                    path += ".png"
-                idx = int(parts[2])
+                # the format decides the encoding — force a matching extension
+                path = re.sub(r"\.(png|jpe?g|tiff?|bmp)$", "", path,
+                              flags=re.I) + ext
                 STATE["save_paths"][idx] = Path(path)
                 STATE["save_dir"] = Path(path).parent
+                STATE["format_key"] = key
                 with LOCK:
                     out = tp.process_page(src, out_dir_for(src),
-                                          out_png=Path(path))
+                                          out_png=Path(path), fmt=fmt)
                 self._send(200, {"file": out.name, "dir": str(out.parent)})
             elif parts[:2] == ["api", "render_all"]:
-                for i in range(len(STATE["files"])):
-                    render_png(i)          # OCRs/translates unseen pages too
-                self._send(200, {"count": len(STATE["files"])})
+                key = self._json_body().get("format") or "png"
+                fmt, ext = FORMAT_MAP[key]
+                folder = choose_path("folder")
+                if not folder:
+                    self._send(200, {"cancelled": True})
+                    return
+                folder = Path(folder)
+                STATE["save_dir"] = folder
+                STATE["save_paths"] = {}
+                STATE["format_key"] = key
+                for src in STATE["files"]:
+                    with LOCK:   # OCRs/translates never-viewed pages too
+                        tp.process_page(
+                            src, out_dir_for(src), fmt=fmt,
+                            out_png=folder /
+                            f"{src.stem}_{tp.TARGET_LANG}{ext}")
+                self._send(200, {"count": len(STATE["files"]),
+                                 "dir": str(folder)})
             else:
                 self._send(404, {"error": "not found"})
         except Exception as e:
@@ -367,6 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         STATE["files"] = files
         STATE["save_dir"] = None      # new document: back to default saves
         STATE["save_paths"] = {}
+        STATE["format_key"] = None
         self._send(200, {"total": len(files)})
 
 

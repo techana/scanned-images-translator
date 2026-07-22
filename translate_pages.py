@@ -645,13 +645,50 @@ def prepare_page(src, out_dir, force=False):
     return page_png, blocks, keepouts
 
 
-def process_page(src, out_dir, force=False, out_png=None):
+def save_png_optimized(img, path):
+    """PNG-8 with the web-safe ("restrictive") palette and ordered Bayer
+    pattern dithering — Photoshop's Save-for-Web PNG-8/Restrictive/Pattern
+    combo. Roughly 6x smaller than truecolor PNG on scanned pages."""
+    import numpy as np
+    bayer = np.array([[ 0, 32,  8, 40,  2, 34, 10, 42],
+                      [48, 16, 56, 24, 50, 18, 58, 26],
+                      [12, 44,  4, 36, 14, 46,  6, 38],
+                      [60, 28, 52, 20, 62, 30, 54, 22],
+                      [ 3, 35, 11, 43,  1, 33,  9, 41],
+                      [51, 19, 59, 27, 49, 17, 57, 25],
+                      [15, 47,  7, 39, 13, 45,  5, 37],
+                      [63, 31, 55, 23, 61, 29, 53, 21]], dtype=np.float32)
+    a = np.asarray(img.convert("RGB"), dtype=np.float32)
+    h, w = a.shape[:2]
+    # threshold offset in (-0.5, 0.5) * palette step (web-safe step = 51)
+    t = np.tile((bayer + 0.5) / 64.0 - 0.5, (h // 8 + 1, w // 8 + 1))[:h, :w]
+    a += t[..., None] * 51.0
+    q = np.clip(np.round(a / 51.0) * 51.0, 0, 255).astype(np.uint8)
+    out = Image.fromarray(q, "RGB").convert(
+        "P", palette=Image.Palette.WEB, dither=Image.Dither.NONE)
+    out.save(path, "PNG", optimize=True)
+
+
+def save_output(img, path, fmt=None):
+    """Write the rendered page.  fmt: {"kind": "png"|"png8"|"jpeg",
+    "quality": int} — default plain truecolor PNG."""
+    kind = (fmt or {}).get("kind", "png")
+    if kind == "jpeg":
+        img.save(path, "JPEG", quality=int(fmt.get("quality", 60)),
+                 optimize=True)
+    elif kind == "png8":
+        save_png_optimized(img, path)
+    else:
+        img.save(path, "PNG")
+
+
+def process_page(src, out_dir, force=False, out_png=None, fmt=None):
     page_png, blocks, keepouts = prepare_page(src, out_dir, force)
     img = Image.open(page_png)
     set_scale(img.size[0])
     out_png = out_png or out_dir / f"{src.stem}_{TARGET_LANG}.png"
     log("  rendering...")
-    render_page(img, blocks, keepouts).save(out_png)
+    save_output(render_page(img, blocks, keepouts), out_png, fmt)
     log(f"  wrote {out_png.name}")
     return out_png
 

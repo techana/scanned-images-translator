@@ -93,26 +93,27 @@
   .ovdot { position: absolute; background: #e03131; border-radius: 50%;
            border: 2px solid #fff; z-index: 9; pointer-events: none; }
 
-  /* ---------------------------------------------------- settings modal */
-  #modalbg { position: fixed; inset: 0; background: #0008; z-index: 200;
+  /* --------------------------------------------------------- modals */
+  .modalbg { position: fixed; inset: 0; background: #0008; z-index: 200;
              display: none; align-items: center; justify-content: center; }
-  #modalbg.show { display: flex; }
-  #settingsmodal { background: #2f3136; border: 1px solid #55585e;
-                   border-radius: 10px; padding: 22px 26px; min-width: 340px;
-                   box-shadow: 0 10px 40px #000c; }
-  #settingsmodal h2 { margin: 0 0 16px; font-size: 15px; }
-  #settingsmodal label { display: block; color: #aaa; margin: 12px 0 4px; }
-  #settingsmodal select { width: 100%; background: #3a3d42; color: #ddd;
+  .modalbg.show { display: flex; }
+  .modal { background: #2f3136; border: 1px solid #55585e;
+           border-radius: 10px; padding: 22px 26px; min-width: 340px;
+           box-shadow: 0 10px 40px #000c; }
+  .modal h2 { margin: 0 0 16px; font-size: 15px; }
+  .modal label { display: block; color: #aaa; margin: 12px 0 4px; }
+  .modal select { width: 100%; background: #3a3d42; color: #ddd;
       border: 1px solid #55585e; border-radius: 5px; padding: 6px; font: inherit; }
-  #settingsmodal .note { color: #999; font-size: 12px; margin-top: 12px;
-                         line-height: 1.4; }
-  #settingsmodal .btns { display: flex; justify-content: flex-end; gap: 8px;
-                         margin-top: 18px; }
-  #settingsmodal .btns button { background: #3a3d42; color: #ddd;
+  .modal .note { color: #999; font-size: 12px; margin-top: 12px;
+                 line-height: 1.4; }
+  .modal a { color: #6f9dff; }
+  .modal .btns { display: flex; justify-content: flex-end; gap: 8px;
+                 margin-top: 18px; }
+  .modal .btns button { background: #3a3d42; color: #ddd;
       border: 1px solid #55585e; border-radius: 5px; padding: 6px 16px;
       font: inherit; cursor: pointer; }
-  #settingsmodal .btns #sett-save { background: #2f7df6; border-color: #2f7df6;
-                                    color: #fff; }
+  .modal .btns .primary { background: #2f7df6; border-color: #2f7df6;
+                          color: #fff; }
 </style>
 </head>
 <body>
@@ -129,6 +130,7 @@
       <div id="saveall">Save all pages</div>
       <hr>
       <div id="settingsitem">Settings…</div>
+      <div id="aboutitem">About</div>
     </div>
   </div>
   <div class="sep"></div>
@@ -173,8 +175,44 @@
   <span id="status"></span>
 </div>
 
-<div id="modalbg">
-  <div id="settingsmodal">
+<div id="savemodalbg" class="modalbg">
+  <div class="modal">
+    <h2>Save</h2>
+    <label for="save-format">Output format</label>
+    <select id="save-format">
+      <option value="png">PNG</option>
+      <option value="png8">PNG Optimized (web palette, pattern dither)</option>
+      <option value="jpeg60">JPEG High (60% quality)</option>
+      <option value="jpeg30">JPEG Medium (30% quality)</option>
+      <option value="jpeg10">JPEG Low (10% quality)</option>
+    </select>
+    <div class="note" id="save-note"></div>
+    <div class="btns">
+      <button id="fmt-cancel">Cancel</button>
+      <button id="fmt-ok" class="primary">Continue…</button>
+    </div>
+  </div>
+</div>
+
+<div id="aboutbg" class="modalbg">
+  <div class="modal">
+    <h2>Images Translator</h2>
+    <div class="note">
+      Version 1.0<br><br>
+      Translate scanned document pages in place — OCR, translate,
+      re-render, edit.<br><br>
+      <a href="https://github.com/techana/scanned-images-translator"
+         target="_blank" rel="noopener">
+        github.com/techana/scanned-images-translator</a>
+    </div>
+    <div class="btns">
+      <button id="about-close" class="primary">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="modalbg" class="modalbg">
+  <div id="settingsmodal" class="modal">
     <h2>Settings</h2>
     <label for="sett-source">Source language (OCR)</label>
     <select id="sett-source"></select>
@@ -196,7 +234,7 @@
       replaced.</div>
     <div class="btns">
       <button id="sett-cancel">Cancel</button>
-      <button id="sett-save">Save</button>
+      <button id="sett-save" class="primary">Save</button>
     </div>
   </div>
 </div>
@@ -252,13 +290,10 @@ $('saveall').onclick = () => { openMenu.classList.remove('show'); saveAll(); };
 async function savePageAs() {
   if (cur < 0) return;
   await flushSave();
-  setStatus('Waiting for save dialog…');
   try {
-    const r = await fetch('/api/page/' + cur + '/render_as', {method: 'POST'})
-        .then(r => r.json());
-    if (r.cancelled) { setStatus(''); return; }
-    if (r.error) throw new Error(r.error);
-    setStatus('Saved ' + r.file + ' in ' + r.dir);
+    const fmt = await askFormat('Choose the format, then pick where to save.');
+    if (!fmt) { setStatus(''); return; }
+    await renderAs(fmt);
   } catch (e) { setStatus('Save failed: ' + e.message, true); }
 }
 
@@ -350,6 +385,44 @@ $('sett-save').onclick = async () => {
   } catch (e) { setStatus('Settings failed: ' + e.message, true); }
 };
 
+// ------------- save-format modal: resolves a format key, or null
+let fmtResolve = null;
+
+function askFormat(note) {
+  $('save-note').textContent = note || '';
+  return new Promise(res => {
+    fmtResolve = res;
+    $('savemodalbg').classList.add('show');
+  });
+}
+$('fmt-ok').onclick = () => {
+  $('savemodalbg').classList.remove('show');
+  if (fmtResolve) { fmtResolve($('save-format').value); fmtResolve = null; }
+};
+$('fmt-cancel').onclick = () => {
+  $('savemodalbg').classList.remove('show');
+  if (fmtResolve) { fmtResolve(null); fmtResolve = null; }
+};
+
+$('aboutitem').onclick = () => {
+  openMenu.classList.remove('show');
+  $('aboutbg').classList.add('show');
+};
+$('about-close').onclick = () => $('aboutbg').classList.remove('show');
+$('aboutbg').addEventListener('mousedown', e => {
+  if (e.target === $('aboutbg')) $('aboutbg').classList.remove('show');
+});
+
+async function renderAs(fmt) {
+  setStatus('Waiting for save dialog…');
+  const r = await fetch('/api/page/' + cur + '/render_as', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({format: fmt})}).then(r => r.json());
+  if (r.cancelled) { setStatus(''); return; }
+  if (r.error) throw new Error(r.error);
+  setStatus('Saved ' + r.file + ' in ' + r.dir);
+}
+
 async function savePage() {
   if (cur < 0) return;
   await flushSave();
@@ -357,6 +430,13 @@ async function savePage() {
   try {
     const r = await fetch('/api/page/' + cur + '/render', {method: 'POST'})
         .then(r => r.json());
+    if (r.need_dialog) {         // first save: pick format + destination
+      const fmt = await askFormat('First save: choose the format, then ' +
+                                  'pick where to save. Later saves reuse both.');
+      if (!fmt) { setStatus(''); return; }
+      await renderAs(fmt);
+      return;
+    }
     if (r.error) throw new Error(r.error);
     setStatus('Saved ' + r.file + ' in ' + r.dir);
   } catch (e) { setStatus('Save failed: ' + e.message, true); }
@@ -365,11 +445,17 @@ async function savePage() {
 async function saveAll() {
   if (!total) return;
   await flushSave();
-  setStatus('Saving all pages… (unseen pages are OCR\'d + translated first)');
   try {
-    const r = await fetch('/api/render_all', {method: 'POST'}).then(r => r.json());
+    const fmt = await askFormat('Choose the format, then pick the output ' +
+                                'folder. Unseen pages are OCR\'d + translated first.');
+    if (!fmt) { setStatus(''); return; }
+    setStatus('Waiting for folder dialog…');
+    const r = await fetch('/api/render_all', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({format: fmt})}).then(r => r.json());
+    if (r.cancelled) { setStatus(''); return; }
     if (r.error) throw new Error(r.error);
-    setStatus('Saved ' + r.count + ' pages');
+    setStatus('Saved ' + r.count + ' pages in ' + r.dir);
   } catch (e) { setStatus('Save failed: ' + e.message, true); }
 }
 

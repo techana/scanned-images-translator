@@ -54,8 +54,10 @@ python3 gui.py
 
 Opens `http://localhost:8877`. Use **Files ▾** to open an image or a folder
 of scans, edit blocks as needed, then **Save current page** (⌘S), **Save
-current as…**, or **Save all pages**. Output: `<page>_<lang>.png` at full
-source resolution. **Files ▾ → Settings…** selects the OCR language, the
+current as…**, or **Save all pages**. The first save picks the output
+format — PNG, PNG Optimized (web palette + pattern dither, ~6× smaller),
+or JPEG at 60/30/10% quality — and the destination; later saves reuse
+both. Output: `<page>_<lang>.png|.jpg` at full source resolution. **Files ▾ → Settings…** selects the OCR language, the
 target language and the translation engine (and offers the one-time Apple
 language-pack download).
 
