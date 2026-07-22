@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Images Translator</title>
+<style>
+  :root { --bar-h: 46px; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px -apple-system, Helvetica, sans-serif;
+         background: #2b2d31; color: #ddd;
+         display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---------------------------------------------------- top bar */
+  #topbar { min-height: var(--bar-h); flex-shrink: 0;
+            display: flex; flex-wrap: wrap; align-items: center;
+            gap: 4px 10px; padding: 6px 12px;
+            background: #1e1f22; border-bottom: 1px solid #000;
+            z-index: 100; user-select: none; }
+  #topbar button, #topbar select {
+      background: #3a3d42; color: #ddd; border: 1px solid #55585e;
+      border-radius: 5px; padding: 4px 10px; font: inherit; cursor: pointer; }
+  #topbar button:hover { background: #4a4d53; }
+  #topbar button:disabled, #topbar input:disabled { opacity: .4; cursor: default; }
+  #topbar input[type=number] {
+      background: #3a3d42; color: #ddd; border: 1px solid #55585e;
+      border-radius: 5px; padding: 4px 2px 4px 6px; font: inherit; }
+  #fontsize { width: 58px; }
+  #linespace { width: 52px; }
+  #bgbtn { padding: 4px 8px; }
+  #bgbtn .sw { display: inline-block; width: 13px; height: 13px;
+      border-radius: 3px; background: #fff; border: 1px solid #888;
+      vertical-align: -2px; margin: 0 4px 0 6px; }
+  #bgbtn.active { outline: 2px solid #6f9dff; }
+  #bgmenu { position: absolute; top: calc(100% + 4px); left: 0; display: none;
+            background: #2f3136; border: 1px solid #55585e; border-radius: 6px;
+            min-width: 150px; overflow: hidden; box-shadow: 0 6px 18px #0009;
+            z-index: 150; }
+  #bgmenu.show { display: block; }
+  #bgmenu div { padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+  #bgmenu div:hover { background: #4a4d53; }
+  .sep { width: 1px; height: 22px; background: #45484e; }
+  #counter { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+  #pagename { color: #999; max-width: 220px; overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; }
+  label.ctl { display: flex; align-items: center; gap: 6px; color: #aaa; }
+  #opacity { width: 130px; accent-color: #6f9dff; }
+  #opv { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+  #status { margin-left: auto; color: #8a8; }
+  #status.err { color: #e88; }
+
+  /* open menu */
+  #openwrap { position: relative; }
+  #openmenu { position: absolute; top: calc(100% + 4px); left: 0; display: none;
+              background: #2f3136; border: 1px solid #55585e; border-radius: 6px;
+              min-width: 160px; overflow: hidden; box-shadow: 0 6px 18px #0009; }
+  #openmenu.show { display: block; }
+  #openmenu div { padding: 8px 14px; cursor: pointer; white-space: nowrap;
+                  display: flex; justify-content: space-between; gap: 18px; }
+  #openmenu div:hover { background: #4a4d53; }
+  #openmenu hr { border: none; border-top: 1px solid #45484e; margin: 4px 0; }
+  #openmenu .kbd { color: #8a8f98; }
+
+  /* ---------------------------------------------------- viewer */
+  #viewport { flex: 1; overflow: auto; }
+  #empty { padding: 80px 20px; text-align: center; color: #888; }
+  #canvas { position: relative; margin: 0 auto; display: none; }
+  #stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  #pageimg { display: block; }
+  #overlay { position: absolute; top: 0; left: 0; }
+
+  .patch { position: absolute; background: #fff; }
+  .block { position: absolute; cursor: default; }
+  .block.selected { cursor: move; }
+  /* white backing sits on the text itself (height:auto), so it follows the
+     text as it rewraps when the block or font is resized */
+  .block .txt { width: 100%; color: #141414; background: #fff;
+                font-family: Helvetica, Arial, sans-serif; line-height: 1.18;
+                overflow: visible; outline: none; overflow-wrap: break-word;
+                white-space: pre-wrap; /* leading spaces + newlines count */ }
+  .block.selected { outline: 1.5px solid #2f7df6; outline-offset: 0; }
+  .block .txt[contenteditable="true"] { background: #fffef2;
+                outline: 1.5px dashed #e0a800; cursor: text; }
+  .handle { position: absolute; background: #2f7df6; border: 1px solid #fff;
+            z-index: 10; }
+  /* red badge on blocks whose text runs past the box rectangle */
+  .ovdot { position: absolute; background: #e03131; border-radius: 50%;
+           border: 2px solid #fff; z-index: 9; pointer-events: none; }
+
+  /* ---------------------------------------------------- settings modal */
+  #modalbg { position: fixed; inset: 0; background: #0008; z-index: 200;
+             display: none; align-items: center; justify-content: center; }
+  #modalbg.show { display: flex; }
+  #settingsmodal { background: #2f3136; border: 1px solid #55585e;
+                   border-radius: 10px; padding: 22px 26px; min-width: 340px;
+                   box-shadow: 0 10px 40px #000c; }
+  #settingsmodal h2 { margin: 0 0 16px; font-size: 15px; }
+  #settingsmodal label { display: block; color: #aaa; margin: 12px 0 4px; }
+  #settingsmodal select { width: 100%; background: #3a3d42; color: #ddd;
+      border: 1px solid #55585e; border-radius: 5px; padding: 6px; font: inherit; }
+  #settingsmodal .note { color: #999; font-size: 12px; margin-top: 12px;
+                         line-height: 1.4; }
+  #settingsmodal .btns { display: flex; justify-content: flex-end; gap: 8px;
+                         margin-top: 18px; }
+  #settingsmodal .btns button { background: #3a3d42; color: #ddd;
+      border: 1px solid #55585e; border-radius: 5px; padding: 6px 16px;
+      font: inherit; cursor: pointer; }
+  #settingsmodal .btns #sett-save { background: #2f7df6; border-color: #2f7df6;
+                                    color: #fff; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="openwrap">
+    <button id="openbtn">Files ▾</button>
+    <div id="openmenu">
+      <div data-kind="file">Open an image…</div>
+      <div data-kind="folder">Load a folder…</div>
+      <hr>
+      <div id="savecur">Save current page <span class="kbd">⌘S</span></div>
+      <div id="savecuras">Save current as…</div>
+      <div id="saveall">Save all pages</div>
+      <hr>
+      <div id="settingsitem">Settings…</div>
+    </div>
+  </div>
+  <div class="sep"></div>
+  <button id="prev" title="Previous page (←)">◀</button>
+  <span id="counter">– / –</span>
+  <button id="next" title="Next page (→)">▶</button>
+  <span id="pagename"></span>
+  <div class="sep"></div>
+  <label class="ctl">Translation
+    <input type="range" id="opacity" min="0" max="100" value="100">
+    <span id="opv">100%</span>
+  </label>
+  <div class="sep"></div>
+  <label class="ctl" title="Font size (image px)">Font
+    <input type="number" id="fontsize" min="6" max="400" step="1" disabled>
+  </label>
+  <label class="ctl" title="Line spacing">Spacing
+    <input type="number" id="linespace" min="0.5" max="3" step="0.1" disabled>
+  </label>
+  <label class="ctl">Color
+    <select id="fontcolor" disabled></select>
+  </label>
+  <div id="bgwrap" style="position:relative">
+    <button id="bgbtn" disabled
+            title="Background of the selected block">
+      Background<span class="sw" id="bgswatch"></span> ▾
+    </button>
+    <div id="bgmenu">
+      <div id="bg-white">White</div>
+      <div id="bg-pick">Pick a color…</div>
+      <div id="bg-transparent">Transparent</div>
+    </div>
+  </div>
+  <div class="sep"></div>
+  <button id="delblk" disabled title="Delete selected block (Del)">🗑</button>
+  <button id="undodel" disabled title="Undo last delete/move (⌘Z)">↩</button>
+  <span id="status"></span>
+</div>
+
+<div id="modalbg">
+  <div id="settingsmodal">
+    <h2>Settings</h2>
+    <label for="sett-source">Source language (OCR)</label>
+    <select id="sett-source"></select>
+    <label for="sett-target">Target language</label>
+    <select id="sett-target"></select>
+    <label for="sett-engine">Translator</label>
+    <select id="sett-engine">
+      <option value="auto">Auto (Apple first, then Google)</option>
+      <option value="apple">Apple (offline, built into macOS)</option>
+      <option value="google">Google</option>
+    </select>
+    <div class="note" id="applestatus"></div>
+    <button id="sett-download" style="display:none; margin-top:6px;
+        background:#3a3d42; color:#ddd; border:1px solid #55585e;
+        border-radius:5px; padding:5px 12px; font:inherit; cursor:pointer;">
+      Download language pack…</button>
+    <div class="note">Changing languages re-runs OCR and translation for a
+      page the next time it is shown — manual edits on such pages are
+      replaced.</div>
+    <div class="btns">
+      <button id="sett-cancel">Cancel</button>
+      <button id="sett-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="viewport">
+  <div id="empty">Open an image or a folder of scanned pages to begin.</div>
+  <div id="canvas">
+    <div id="stage">
+      <img id="pageimg">
+      <div id="overlay"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const COLORS = [
+  ['Black', '#141414'], ['White', '#ffffff'], ['Light gray', '#c9c9c9'],
+  ['Dark gray', '#555555'], ['Yellow', '#f2c500'], ['Orange', '#f07800'],
+  ['Red', '#d22c2c'], ['Cyan', '#00b5cc'], ['Blue', '#1e5bd6'],
+  ['Green', '#1e9e40'], ['Magenta', '#c332c9'], ['Brown', '#8a5a2c'],
+];
+
+let page = null;        // current page JSON from the server
+let cur = -1, total = 0;
+let scale = 1;
+let selected = null;    // selected block object (from page.blocks)
+let saveTimer = null, savePending = false;
+
+// ------------------------------------------------------------ top bar
+
+const openMenu = $('openmenu');
+$('openbtn').onclick = e => { e.stopPropagation(); openMenu.classList.toggle('show'); };
+document.addEventListener('click', () => openMenu.classList.remove('show'));
+openMenu.querySelectorAll('div[data-kind]').forEach(item => item.onclick = async e => {
+  openMenu.classList.remove('show');
+  setStatus('Waiting for file dialog…');
+  const r = await fetch('/api/open', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind: item.dataset.kind})}).then(r => r.json());
+  if (r.cancelled) { setStatus(''); return; }
+  if (r.error) { setStatus(r.error, true); return; }
+  total = r.total;
+  setStatus('');
+  loadPage(0);
+});
+
+$('savecur').onclick = () => { openMenu.classList.remove('show'); savePage(); };
+$('savecuras').onclick = () => { openMenu.classList.remove('show'); savePageAs(); };
+$('saveall').onclick = () => { openMenu.classList.remove('show'); saveAll(); };
+
+async function savePageAs() {
+  if (cur < 0) return;
+  await flushSave();
+  setStatus('Waiting for save dialog…');
+  try {
+    const r = await fetch('/api/page/' + cur + '/render_as', {method: 'POST'})
+        .then(r => r.json());
+    if (r.cancelled) { setStatus(''); return; }
+    if (r.error) throw new Error(r.error);
+    setStatus('Saved ' + r.file + ' in ' + r.dir);
+  } catch (e) { setStatus('Save failed: ' + e.message, true); }
+}
+
+// -------------------------------------------------------- settings modal
+
+const langName = (() => {
+  let dn = null;
+  try { dn = new Intl.DisplayNames(['en'], {type: 'language'}); } catch (e) {}
+  return code => {
+    try { const n = dn && dn.of(code); return n && n !== code ? `${n} (${code})` : code; }
+    catch (e) { return code; }
+  };
+})();
+
+function fillLangSelect(sel, codes, chosen) {
+  sel.innerHTML = '';
+  codes.map(c => [langName(c), c])
+       .sort((a, b) => a[0].localeCompare(b[0]))
+       .forEach(([label, c]) => sel.add(new Option(label, c)));
+  if (codes.includes(chosen)) sel.value = chosen;
+}
+
+async function refreshAppleStatus() {
+  const src = $('sett-source').value.split('-')[0];
+  const tgt = $('sett-target').value;
+  const note = $('applestatus'), dl = $('sett-download');
+  note.textContent = 'Checking Apple language pack…';
+  dl.style.display = 'none';
+  try {
+    const r = await fetch(`/api/applestatus?source=${src}&target=${tgt}`)
+        .then(r => r.json());
+    if (r.status === 'installed') {
+      note.textContent = `Apple translation ${src} → ${tgt}: language pack installed ✓`;
+    } else if (r.status === 'supported') {
+      note.textContent = `Apple translation ${src} → ${tgt}: language pack not `
+          + `downloaded — the Apple engine is skipped until you download it.`;
+      dl.style.display = 'inline-block';
+    } else {
+      note.textContent = `Apple translation does not support ${src} → ${tgt} — `
+          + `Google will be used.`;
+    }
+  } catch (e) { note.textContent = ''; }
+}
+$('sett-source').addEventListener('change', refreshAppleStatus);
+$('sett-target').addEventListener('change', refreshAppleStatus);
+
+$('sett-download').onclick = async () => {
+  const src = $('sett-source').value.split('-')[0];
+  const tgt = $('sett-target').value;
+  await fetch('/api/appleprepare', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source: src, target: tgt})});
+  $('applestatus').textContent = 'A macOS dialog has opened — approve the '
+      + 'download there, then change a language here to re-check.';
+  $('sett-download').style.display = 'none';
+};
+
+$('settingsitem').onclick = async () => {
+  openMenu.classList.remove('show');
+  try {
+    const s = await fetch('/api/settings').then(r => r.json());
+    if (s.error) throw new Error(s.error);
+    fillLangSelect($('sett-source'), s.ocr_langs, s.ocr_lang);
+    fillLangSelect($('sett-target'), s.translate_langs, s.target);
+    $('sett-engine').value = s.engine || 'auto';
+    $('modalbg').classList.add('show');
+    refreshAppleStatus();
+  } catch (e) { setStatus('Settings failed: ' + e.message, true); }
+};
+
+$('sett-cancel').onclick = () => $('modalbg').classList.remove('show');
+$('modalbg').addEventListener('mousedown', e => {
+  if (e.target === $('modalbg')) $('modalbg').classList.remove('show');
+});
+
+$('sett-save').onclick = async () => {
+  const body = {ocr_lang: $('sett-source').value,
+                target: $('sett-target').value,
+                engine: $('sett-engine').value};
+  try {
+    const r = await fetch('/api/settings', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    $('modalbg').classList.remove('show');
+    setStatus('Settings saved');
+    setTimeout(() => setStatus(''), 1500);
+    if (cur >= 0) loadPage(cur);   // re-runs OCR/translation if langs changed
+  } catch (e) { setStatus('Settings failed: ' + e.message, true); }
+};
+
+async function savePage() {
+  if (cur < 0) return;
+  await flushSave();
+  setStatus('Saving page…');
+  try {
+    const r = await fetch('/api/page/' + cur + '/render', {method: 'POST'})
+        .then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    setStatus('Saved ' + r.file + ' in ' + r.dir);
+  } catch (e) { setStatus('Save failed: ' + e.message, true); }
+}
+
+async function saveAll() {
+  if (!total) return;
+  await flushSave();
+  setStatus('Saving all pages… (unseen pages are OCR\'d + translated first)');
+  try {
+    const r = await fetch('/api/render_all', {method: 'POST'}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    setStatus('Saved ' + r.count + ' pages');
+  } catch (e) { setStatus('Save failed: ' + e.message, true); }
+}
+
+$('prev').onclick = () => loadPage(cur - 1);
+$('next').onclick = () => loadPage(cur + 1);
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.keyCode === 83)) {
+    e.preventDefault(); savePage(); return;
+  }
+  if (e.key === 'Escape') {
+    if (picking) setPicking(false); else deselect();
+    return;
+  }
+  const ae = document.activeElement;
+  if (ae && (ae.isContentEditable || ae.tagName === 'INPUT'
+             || ae.tagName === 'SELECT')) return;
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.keyCode === 90)) {
+    e.preventDefault();
+    performUndo();
+    return;
+  }
+  if (selected && (e.key === 'Delete' || e.keyCode === 46)) {
+    e.preventDefault();
+    deleteBlock();
+    return;
+  }
+  const ARROWS = {ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+                  ArrowUp: [0, -1], ArrowDown: [0, 1]};
+  const CODES = {37: 'ArrowLeft', 39: 'ArrowRight', 38: 'ArrowUp', 40: 'ArrowDown'};
+  const key = ARROWS[e.key] ? e.key : CODES[e.keyCode];
+  if (!key) return;
+  e.preventDefault();
+  if (selected) {                     // nudge selected block: 1 px, ⇧ = 10 px
+    // one undo entry per burst of nudges, not one per keypress
+    if (!(lastNudge.id === selected.id && Date.now() - lastNudge.t < 1500))
+      pushUndo({type: 'move', page: cur, id: selected.id,
+                bbox: [...selected.bbox]});
+    lastNudge = {id: selected.id, t: Date.now()};
+    const step = e.shiftKey ? 10 : 1;
+    moveBlock(selected, ARROWS[key][0] * step, ARROWS[key][1] * step);
+    scheduleSave();
+  } else if (key === 'ArrowLeft') {
+    loadPage(cur - 1);
+  } else if (key === 'ArrowRight') {
+    loadPage(cur + 1);
+  }
+});
+
+$('opacity').oninput = e => {
+  $('opv').textContent = e.target.value + '%';
+  $('overlay').style.opacity = e.target.value / 100;
+};
+
+const fontSize = $('fontsize'), lineSpace = $('linespace');
+const fontColor = $('fontcolor'), bgPick = $('bgbtn');
+COLORS.forEach(([name, hex]) => fontColor.add(new Option(name, hex)));
+fontColor.value = '';               // blank until a block is selected
+
+// Bind BOTH 'input' and 'change': some engines (WebKit) fire only
+// 'change' for spinner / arrow-key stepping on number inputs, which
+// silently swallowed font edits.
+function applyFontSize() {
+  const v = Math.round(+fontSize.value);
+  if (!selected || !(v >= 6) || selected.font_px === v) return;
+  selected.font_px = v;
+  selected._txt.style.fontSize = v + 'px';
+  clearPatches(selected);
+  updateOverflow(selected);
+  scheduleSave();
+}
+fontSize.addEventListener('input', applyFontSize);
+fontSize.addEventListener('change', applyFontSize);
+
+function applyLineSpace() {
+  const v = Math.round(+lineSpace.value * 10) / 10;
+  if (!selected || !(v >= 0.5) || selected.line_spacing === v) return;
+  selected.line_spacing = v;
+  selected._txt.style.lineHeight = v;
+  clearPatches(selected);
+  updateOverflow(selected);
+  scheduleSave();
+}
+lineSpace.addEventListener('input', applyLineSpace);
+lineSpace.addEventListener('change', applyLineSpace);
+
+fontColor.onchange = () => {
+  if (!selected) return;
+  selected.color = fontColor.value;
+  selected._txt.style.color = selected.color;
+  scheduleSave();                   // color edits keep the auto patches
+};
+
+// -------- patch-color eyedropper: pick from the ORIGINAL page image
+let picking = false, pickCanvas = null;
+
+function pickCtx() {
+  if (!pickCanvas) {
+    const img = $('pageimg');
+    pickCanvas = document.createElement('canvas');
+    pickCanvas.width = img.naturalWidth;
+    pickCanvas.height = img.naturalHeight;
+    pickCanvas.getContext('2d').drawImage(img, 0, 0);
+  }
+  return pickCanvas.getContext('2d');
+}
+
+function setPicking(on) {
+  picking = on;
+  bgPick.classList.toggle('active', on);
+  $('viewport').style.cursor = on ? 'crosshair' : '';
+}
+
+const bgMenu = $('bgmenu');
+bgPick.onclick = e => {
+  e.stopPropagation();
+  if (selected) bgMenu.classList.toggle('show');
+};
+document.addEventListener('click', () => bgMenu.classList.remove('show'));
+$('bg-white').onclick = () => {
+  bgMenu.classList.remove('show');
+  if (!selected) return;
+  applyBg(selected, '#ffffff');
+  scheduleSave();
+};
+$('bg-pick').onclick = () => {
+  bgMenu.classList.remove('show');
+  if (selected) setPicking(true);
+};
+$('bg-transparent').onclick = () => {
+  bgMenu.classList.remove('show');
+  if (!selected) return;
+  applyBg(selected, 'transparent');
+  scheduleSave();
+};
+
+document.addEventListener('mousedown', e => {
+  if (!picking) return;
+  e.preventDefault();
+  e.stopPropagation();
+  setPicking(false);
+  if (!selected || !$('viewport').contains(e.target)) return;
+  const r = $('stage').getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / scale);
+  const y = Math.floor((e.clientY - r.top) / scale);
+  if (x < 0 || y < 0 || x >= page.width || y >= page.height) return;
+  // average a 5x5 neighborhood: scanned halftones are black/white dot
+  // dithers, so a single pixel would be a lottery between the two
+  const x0 = Math.max(0, x - 2), y0 = Math.max(0, y - 2);
+  const w = Math.min(5, page.width - x0), h = Math.min(5, page.height - y0);
+  const d = pickCtx().getImageData(x0, y0, w, h).data;
+  const sum = [0, 0, 0];
+  for (let i = 0; i < d.length; i += 4)
+    for (let c = 0; c < 3; c++) sum[c] += d[i + c];
+  const hex = '#' + sum.map(v =>
+      Math.round(v / (w * h)).toString(16).padStart(2, '0')).join('');
+  applyBg(selected, hex);
+  scheduleSave();
+}, true);           // capture phase, so blocks/patches don't eat the click
+
+function applyBg(blk, hex) {
+  blk.bg = hex;
+  blk._txt.style.background = hex;
+  blk._patches.forEach(p => p.style.background = hex);
+  $('bgswatch').style.background = hex;
+}
+
+// ------------------------------------ undo stack (deletes + moves, ⌘Z)
+const undoStack = [];   // [{type:'delete'|'move', page, id, bbox?}, ...]
+let lastNudge = {id: null, t: 0};   // coalesces arrow-key move bursts
+
+function pushUndo(u) {
+  undoStack.push(u);
+  $('undodel').disabled = false;
+}
+
+async function performUndo() {
+  const u = undoStack.pop();
+  if (!u) return;
+  $('undodel').disabled = !undoStack.length;
+  if (u.type === 'delete') {
+    await flushSave();
+    await saveDeleted(u.page, u.id, false);
+    if (u.page === cur) loadPage(cur);   // rebuild to show the revived block
+    return;
+  }
+  // move: restore the block's pre-move rectangle
+  if (u.page === cur) {
+    const b = page.blocks.find(x => x.id === u.id);
+    if (!b) return;
+    b.bbox = [...u.bbox];
+    placeBlock(b);
+    scheduleSave();
+  } else {          // page changed since the move — write straight through
+    await fetch('/api/page/' + u.page + '/save', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({edits: [{id: u.id, bbox: u.bbox}]})});
+  }
+  setStatus('Move undone');
+  setTimeout(() => { if ($('status').textContent === 'Move undone') setStatus(''); }, 1500);
+}
+
+async function saveDeleted(pageIdx, id, del) {
+  try {
+    const r = await fetch('/api/page/' + pageIdx + '/save', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({edits: [{id, deleted: del}]})})
+        .then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    setStatus(del ? 'Block deleted' : 'Delete undone');
+    setTimeout(() => setStatus(''), 1500);
+  } catch (e) { setStatus('Save failed: ' + e.message, true); }
+}
+
+function deleteBlock() {
+  if (!selected) return;
+  const blk = selected;
+  deselect();
+  blk._patches.forEach(p => p.remove());
+  blk._div.remove();
+  page.blocks = page.blocks.filter(b => b !== blk);
+  pushUndo({type: 'delete', page: cur, id: blk.id});
+  saveDeleted(cur, blk.id, true);
+}
+$('delblk').onclick = deleteBlock;
+$('undodel').onclick = performUndo;
+
+// A geometry edit (size, spacing, resize) permanently drops the block's
+// auto erase patches: from then on only the text backing covers the page,
+// so the user can shrink the block to reveal icons the OCR wrongly
+// treated as text.  Color / patch-color edits keep the patches.
+function clearPatches(blk) {
+  blk._patches.forEach(p => p.remove());
+  blk._patches = [];
+  blk.edited = true;
+}
+
+function setStatus(msg, err) {
+  $('status').textContent = msg;
+  $('status').className = err ? 'err' : '';
+}
+
+// ------------------------------------------------------------ paging
+
+async function loadPage(i) {
+  if (i < 0 || i >= total) return;
+  await flushSave();               // don't lose edits when switching pages
+  deselect();
+  setStatus('Loading page… (first view runs OCR + translation)');
+  let p;
+  try {
+    const resp = await fetch('/api/page/' + i);
+    p = await resp.json();
+    if (p.error) throw new Error(p.error);
+  } catch (e) { setStatus('Page failed: ' + e.message, true); return; }
+  page = p; cur = i;
+  pickCanvas = null;                // pixel cache belongs to the old page
+  $('counter').textContent = (i + 1) + ' / ' + total;
+  $('pagename').textContent = p.name;
+  $('prev').disabled = i === 0;
+  $('next').disabled = i === total - 1;
+  const img = $('pageimg');
+  img.onload = () => { layout(); buildOverlay(); setStatus(''); };
+  img.src = '/img/' + i;
+  $('empty').style.display = 'none';
+  $('canvas').style.display = 'block';
+}
+
+function layout() {
+  if (!page) return;
+  const avail = $('viewport').clientWidth - 24;
+  scale = Math.min(avail / page.width, 1.6);
+  $('stage').style.transform = 'scale(' + scale + ')';
+  $('canvas').style.width  = page.width  * scale + 'px';
+  $('canvas').style.height = page.height * scale + 'px';
+}
+window.addEventListener('resize', layout);
+
+// ------------------------------------------------------------ overlay
+
+function buildOverlay() {
+  const ov = $('overlay');
+  ov.innerHTML = '';
+  ov.style.width = page.width + 'px';
+  ov.style.height = page.height + 'px';
+  for (const blk of page.blocks) addBlockDom(blk);
+  ov.style.opacity = $('opacity').value / 100;
+}
+
+function addBlockDom(blk) {
+  const ov = $('overlay');
+  // White patches that erase the original Japanese segments — but not
+  // for geometry-edited blocks: there the text backing is the only
+  // patch, so shrinking the block/font un-hides wrongly covered pixels.
+  blk._patches = [];
+  if (!blk.edited) {
+    for (const [x, y, w, h] of blk.patches) {
+      const p = document.createElement('div');
+      p.className = 'patch';
+      Object.assign(p.style, {left: x + 'px', top: y + 'px',
+                              width: w + 'px', height: h + 'px',
+                              background: blk.bg});
+      ov.appendChild(p);
+      blk._patches.push(p);
+    }
+  }
+  const div = document.createElement('div');
+  div.className = 'block';
+  const txt = document.createElement('div');
+  txt.className = 'txt';
+  if (page.rtl) {
+    txt.dir = 'rtl';               // Arabic etc.: proper caret/selection
+    // WYSIWYG: the renderer uses Tahoma for RTL (Helvetica has no Arabic),
+    // so the editor must measure with the same font or wraps differ
+    txt.style.fontFamily = 'Tahoma, "Geeza Pro", sans-serif';
+  }
+  txt.innerText = blk.en;
+  Object.assign(txt.style, {fontSize: blk.font_px + 'px',
+                            lineHeight: blk.line_spacing,
+                            color: blk.color, background: blk.bg});
+  div.appendChild(txt);
+  ov.appendChild(div);
+  blk._div = div; blk._txt = txt;
+  // per-field baseline: save only what the user actually changes
+  blk._orig = {en: blk.en, bbox: JSON.stringify(blk.bbox),
+               font: blk.font_px, ls: blk.line_spacing,
+               color: blk.color, bg: blk.bg};
+  placeBlock(blk);
+
+  div.addEventListener('mousedown', e => {
+    if (txt.isContentEditable) return;
+    select(blk);
+    startMove(e, blk);            // handles stopPropagation, so this is
+  });                             // only reached from the block body
+  div.addEventListener('dblclick', e => {
+    select(blk);
+    txt.contentEditable = 'true';
+    txt.focus();
+  });
+  txt.addEventListener('blur', () => {
+    txt.contentEditable = 'false';
+    const t = txt.innerText.replace(/\u00a0/g, ' ')  // NBSP -> plain space
+        .replace(/\s+$/, '');  // trailing newlines would grow the backing
+    if (t !== blk.en) { blk.en = t; txt.innerText = t; scheduleSave(); }
+    updateOverflow(blk);
+  });
+}
+
+function placeBlock(blk) {
+  const [x0, y0, x1, y1] = blk.bbox;
+  Object.assign(blk._div.style, {left: x0 + 'px', top: y0 + 'px',
+                                 width: (x1 - x0) + 'px',
+                                 height: (y1 - y0) + 'px'});
+  updateOverflow(blk);
+}
+
+// Mark blocks whose text extends beyond the box rectangle (such text can
+// be hidden under other blocks' backings): red ring + red top-right dot.
+function updateOverflow(blk) {
+  if (!blk._txt) return;
+  const [x0, y0, x1, y1] = blk.bbox;
+  const over = blk._txt.offsetHeight > (y1 - y0) + 2
+            || blk._txt.scrollWidth > (x1 - x0) + 2;
+  const ring = Math.max(4, Math.round(blk.font_px * 0.08));
+  blk._div.style.boxShadow = over ? `0 0 0 ${ring}px #e03131` : '';
+  if (over && !blk._dot) {
+    blk._dot = document.createElement('div');
+    blk._dot.className = 'ovdot';
+    blk._dot.title = 'Text extends beyond the box';
+    blk._div.appendChild(blk._dot);
+  }
+  if (blk._dot) {
+    const r = Math.max(10, Math.round(blk.font_px * 0.3));
+    Object.assign(blk._dot.style, {width: 2 * r + 'px', height: 2 * r + 'px',
+                                   top: -r + 'px', right: -r + 'px',
+                                   display: over ? '' : 'none'});
+  }
+}
+
+// --------------------------- create a text block on empty-area dblclick
+
+$('stage').addEventListener('dblclick', async e => {
+  if (!page || picking || e.target.closest('.block')) return;
+  const r = $('stage').getBoundingClientRect();
+  const x = Math.round((e.clientX - r.left) / scale);
+  const y = Math.round((e.clientY - r.top) / scale);
+  if (x < 0 || y < 0 || x >= page.width || y >= page.height) return;
+  // default size from the page's typical font
+  const fonts = page.blocks.map(b => b.font_px).sort((a, b) => a - b);
+  const f = fonts.length ? fonts[fonts.length >> 1]
+                         : Math.max(20, Math.round(page.width / 50));
+  const bbox = [x, y, Math.min(x + 10 * f, page.width),
+                y + Math.round(2.4 * f)];
+  try {
+    const res = await fetch('/api/page/' + cur + '/add', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({en: 'Text', bbox, font_px: f})})
+        .then(r => r.json());
+    if (res.error) throw new Error(res.error);
+    const blk = {id: res.id, en: 'Text', bbox, font_px: f,
+                 line_spacing: 1, color: '#141414', bg: '#ffffff',
+                 patches: [], edited: true};
+    page.blocks.push(blk);
+    addBlockDom(blk);
+    select(blk);
+    blk._txt.contentEditable = 'true';   // start typing right away
+    blk._txt.focus();
+    document.execCommand('selectAll', false, null);
+  } catch (err) { setStatus('Add failed: ' + err.message, true); }
+});
+
+// ---------------------------------------------------- selection + resize
+
+const DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+function select(blk) {
+  if (selected === blk) return;
+  deselect();
+  selected = blk;
+  blk._div.classList.add('selected');
+  addHandles(blk);
+  for (const el of [fontSize, lineSpace, fontColor, bgPick, $('delblk')])
+    el.disabled = false;
+  fontSize.value = blk.font_px;
+  lineSpace.value = blk.line_spacing;
+  fontColor.value = COLORS.some(c => c[1] === blk.color) ? blk.color : '#141414';
+  $('bgswatch').style.background = blk.bg;
+}
+
+function deselect() {
+  if (!selected) return;
+  setPicking(false);
+  selected._div.classList.remove('selected');
+  selected._div.querySelectorAll('.handle').forEach(h => h.remove());
+  selected = null;
+  fontSize.value = lineSpace.value = fontColor.value = '';
+  $('bgswatch').style.background = '#fff';
+  for (const el of [fontSize, lineSpace, fontColor, bgPick, $('delblk')])
+    el.disabled = true;
+}
+$('viewport').addEventListener('mousedown', e => {
+  if (!e.target.closest('.block')) deselect();
+});
+
+function addHandles(blk) {
+  const sz = Math.max(8, 12 / scale);          // constant on-screen size
+  for (const dir of DIRS) {
+    const h = document.createElement('div');
+    h.className = 'handle';
+    h.style.width = h.style.height = sz + 'px';
+    h.style.cursor = dir + '-resize';
+    const off = -sz / 2 + 'px';
+    if (dir.includes('n')) h.style.top = off;
+    if (dir.includes('s')) h.style.bottom = off;
+    if (dir.includes('w')) h.style.left = off;
+    if (dir.includes('e')) h.style.right = off;
+    if (dir === 'n' || dir === 's') { h.style.left = '50%'; h.style.marginLeft = off; }
+    if (dir === 'e' || dir === 'w') { h.style.top = '50%'; h.style.marginTop = off; }
+    h.addEventListener('mousedown', e => startResize(e, blk, dir));
+    blk._div.appendChild(h);
+  }
+}
+
+function moveBlock(blk, dx, dy) {
+  if (blk._patches.length) clearPatches(blk);   // moving is a geometry edit
+  const [x0, y0, x1, y1] = blk.bbox;
+  blk.bbox = [x0 + dx, y0 + dy, x1 + dx, y1 + dy];
+  placeBlock(blk);
+}
+
+function startMove(e, blk) {
+  e.preventDefault();
+  const sx = e.clientX, sy = e.clientY, start = [...blk.bbox];
+  let moved = false;
+  function mv(ev) {
+    // ignore jitter so a plain click doesn't count as a move
+    if (!moved && Math.abs(ev.clientX - sx) < 3
+               && Math.abs(ev.clientY - sy) < 3) return;
+    moved = true;
+    if (blk._patches.length) clearPatches(blk);
+    const dx = Math.round((ev.clientX - sx) / scale);
+    const dy = Math.round((ev.clientY - sy) / scale);
+    blk.bbox = [start[0] + dx, start[1] + dy, start[2] + dx, start[3] + dy];
+    placeBlock(blk);
+  }
+  function up() {
+    document.removeEventListener('mousemove', mv);
+    document.removeEventListener('mouseup', up);
+    if (moved) {
+      pushUndo({type: 'move', page: cur, id: blk.id, bbox: start});
+      scheduleSave();
+    }
+  }
+  document.addEventListener('mousemove', mv);
+  document.addEventListener('mouseup', up);
+}
+
+function startResize(e, blk, dir) {
+  e.preventDefault();
+  e.stopPropagation();
+  const sx = e.clientX, sy = e.clientY, start = [...blk.bbox];
+  const MIN = 24;                              // image px
+  function move(ev) {
+    if (blk._patches.length) clearPatches(blk);
+    const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
+    const b = [...start];
+    if (dir.includes('w')) b[0] = Math.min(start[0] + dx, b[2] - MIN);
+    if (dir.includes('e')) b[2] = Math.max(start[2] + dx, b[0] + MIN);
+    if (dir.includes('n')) b[1] = Math.min(start[1] + dy, b[3] - MIN);
+    if (dir.includes('s')) b[3] = Math.max(start[3] + dy, b[1] + MIN);
+    blk.bbox = b.map(Math.round);
+    placeBlock(blk);
+  }
+  function up() {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+    scheduleSave();
+  }
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+}
+
+// ------------------------------------------------------------ saving
+
+function scheduleSave() {
+  savePending = true;
+  setStatus('Editing…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 700);
+}
+
+async function doSave() {
+  if (!savePending || !page) return;
+  savePending = false;
+  // send only the fields the user changed on each block — the server keys
+  // GUI-style rendering off gui_bbox/font_px, so a text-only edit must not
+  // include geometry fields
+  const edits = [];
+  for (const b of page.blocks) {
+    if (b._txt && b._txt.isContentEditable)
+      b.en = b._txt.innerText.replace(/\u00a0/g, ' ').replace(/\s+$/, '');
+    const e = {id: b.id};
+    if (b.en !== b._orig.en) e.en = b.en;
+    if (JSON.stringify(b.bbox) !== b._orig.bbox) e.bbox = b.bbox;
+    if (b.font_px !== b._orig.font) e.font_px = b.font_px;
+    if (b.line_spacing !== b._orig.ls) e.line_spacing = b.line_spacing;
+    if (b.color !== b._orig.color) e.color = b.color;
+    if (b.bg !== b._orig.bg) e.bg = b.bg;
+    if (Object.keys(e).length > 1) edits.push(e);
+  }
+  if (!edits.length) { setStatus(''); return; }
+  try {
+    const r = await fetch('/api/page/' + cur + '/save', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({edits})}).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    setStatus('Saved');
+    setTimeout(() => { if ($('status').textContent === 'Saved') setStatus(''); }, 1500);
+  } catch (e) { setStatus('Save failed: ' + e.message, true); }
+}
+
+async function flushSave() {
+  clearTimeout(saveTimer);
+  if (document.activeElement && document.activeElement.isContentEditable)
+    document.activeElement.blur();           // commits pending text edit
+  if (savePending) await doSave();
+}
+window.addEventListener('beforeunload', () => { if (savePending) doSave(); });
+
+// ------------------------------------------------------------ startup
+
+(async () => {                // if the server was started with preloaded files
+  try {
+    const p = await fetch('/api/page/0');
+    if (p.ok) {
+      const j = await p.json();
+      if (!j.error) { total = j.total; loadPage(0); }
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

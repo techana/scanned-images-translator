@@ -1,0 +1,22 @@
+# Claude / assistant files
+.claude/
+CLAUDE.md
+
+# compiled Swift helpers (build with swiftc, see readme)
+/ocr
+/translate
+
+# per-user GUI settings
+gui-settings.json
+
+# per-page OCR/translation caches and outputs
+.cache/
+*.png
+*.jp2
+
+# internal dev notes (contain local paths / account details)
+HANDOVER.md
+
+# misc
+__pycache__/
+.DS_Store
