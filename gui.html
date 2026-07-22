@@ -179,7 +179,17 @@
 <div id="savemodalbg" class="modalbg">
   <div class="modal">
     <h2>Save</h2>
-    <label for="save-format">Output format</label>
+    <label>Output format</label>
+    <div style="display:flex; gap:22px; margin:4px 0 2px">
+      <label style="display:flex; align-items:center; gap:7px; margin:0">
+        <input type="radio" name="outkind" id="out-image" checked> Image
+      </label>
+      <label style="display:flex; align-items:center; gap:7px; margin:0">
+        <input type="radio" name="outkind" id="out-pdf">
+        PDF (searchable text layer)
+      </label>
+    </div>
+    <label for="save-format">Image format</label>
     <select id="save-format">
       <option value="png">PNG</option>
       <option value="png8">PNG Optimized (web palette, Bayer pattern dither)</option>
@@ -406,7 +416,11 @@ function askFormat(note) {
 }
 $('fmt-ok').onclick = () => {
   $('savemodalbg').classList.remove('show');
-  if (fmtResolve) { fmtResolve($('save-format').value); fmtResolve = null; }
+  if (fmtResolve) {
+    fmtResolve({format: $('save-format').value,
+                pdf: $('out-pdf').checked});
+    fmtResolve = null;
+  }
 };
 $('fmt-cancel').onclick = () => {
   $('savemodalbg').classList.remove('show');
@@ -426,7 +440,8 @@ async function renderAs(fmt) {
   setStatus('Waiting for save dialog…');
   const r = await fetch('/api/page/' + cur + '/render_as', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({format: fmt})}).then(r => r.json());
+      body: JSON.stringify({format: fmt.format, pdf: fmt.pdf})})
+      .then(r => r.json());
   if (r.cancelled) { setStatus(''); return; }
   if (r.error) throw new Error(r.error);
   setStatus('Saved ' + r.file + ' in ' + r.dir);
@@ -461,7 +476,8 @@ async function saveAll() {
     setStatus('Waiting for folder dialog…');
     const r = await fetch('/api/render_all', {method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({format: fmt})}).then(r => r.json());
+        body: JSON.stringify({format: fmt.format, pdf: fmt.pdf})})
+        .then(r => r.json());
     if (r.cancelled) { setStatus(''); return; }
     if (r.error) throw new Error(r.error);
     setStatus('Saved ' + r.count + ' pages in ' + r.dir);

@@ -48,7 +48,8 @@ SETTINGS_FILE = Path(__file__).resolve().parent / "gui-settings.json"
 STATE = {"files": [], "out": None,   # out: forced output dir (else input dir)
          "save_dir": None,           # folder chosen via a save dialog
          "save_paths": {},           # page idx -> exact path chosen for it
-         "format_key": None}         # output format chosen at first save
+         "format_key": None,         # image format chosen at first save
+         "save_pdf": False}          # wrap pages in searchable PDFs
 
 # frontend format key -> (save_output fmt dict, file extension)
 FORMAT_MAP = {
@@ -210,6 +211,8 @@ def render_png(idx):
     save target was chosen yet (caller shows the save dialog)."""
     src = STATE["files"][idx]
     fmt, ext = FORMAT_MAP[STATE["format_key"] or "png"]
+    if STATE["save_pdf"]:
+        fmt, ext = dict(fmt, pdf=True), ".pdf"
     out_png = STATE["save_paths"].get(idx)
     if not out_png and STATE["save_dir"]:
         out_png = STATE["save_dir"] / f"{src.stem}_{tp.TARGET_LANG}{ext}"
@@ -355,25 +358,34 @@ class Handler(BaseHTTPRequestHandler):
                     and parts[3] == "render_as"):
                 idx = int(parts[2])
                 src = STATE["files"][idx]
-                key = self._json_body().get("format") or "png"
+                body = self._json_body()
+                key = body.get("format") or "png"
+                pdf = bool(body.get("pdf"))
                 fmt, ext = FORMAT_MAP[key]
+                if pdf:
+                    fmt, ext = dict(fmt, pdf=True), ".pdf"
                 path = choose_save_path(f"{src.stem}_{tp.TARGET_LANG}{ext}")
                 if not path:
                     self._send(200, {"cancelled": True})
                     return
                 # the format decides the encoding — force a matching extension
-                path = re.sub(r"\.(png|jpe?g|tiff?|bmp)$", "", path,
+                path = re.sub(r"\.(png|jpe?g|tiff?|bmp|pdf)$", "", path,
                               flags=re.I) + ext
                 STATE["save_paths"][idx] = Path(path)
                 STATE["save_dir"] = Path(path).parent
                 STATE["format_key"] = key
+                STATE["save_pdf"] = pdf
                 with LOCK:
                     out = tp.process_page(src, out_dir_for(src),
                                           out_png=Path(path), fmt=fmt)
                 self._send(200, {"file": out.name, "dir": str(out.parent)})
             elif parts[:2] == ["api", "render_all"]:
-                key = self._json_body().get("format") or "png"
+                body = self._json_body()
+                key = body.get("format") or "png"
+                pdf = bool(body.get("pdf"))
                 fmt, ext = FORMAT_MAP[key]
+                if pdf:
+                    fmt, ext = dict(fmt, pdf=True), ".pdf"
                 folder = choose_path("folder")
                 if not folder:
                     self._send(200, {"cancelled": True})
@@ -382,6 +394,7 @@ class Handler(BaseHTTPRequestHandler):
                 STATE["save_dir"] = folder
                 STATE["save_paths"] = {}
                 STATE["format_key"] = key
+                STATE["save_pdf"] = pdf
                 for src in STATE["files"]:
                     with LOCK:   # OCRs/translates never-viewed pages too
                         tp.process_page(
@@ -410,6 +423,7 @@ class Handler(BaseHTTPRequestHandler):
         STATE["save_dir"] = None      # new document: back to default saves
         STATE["save_paths"] = {}
         STATE["format_key"] = None
+        STATE["save_pdf"] = False
         self._send(200, {"total": len(files)})
 
 

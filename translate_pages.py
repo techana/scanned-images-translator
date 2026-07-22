@@ -704,12 +704,21 @@ def save_png_gray(img, path, levels=8):
     out.save(path, "PNG", optimize=True)
 
 
-def save_output(img, path, fmt=None):
-    """Write the rendered page.  fmt: {"kind": ..., "quality": int}.
-    Kinds: png (truecolor), png8 (web palette + pattern dither),
-    png8g (8 shades of gray, pattern dither), png1 (1-bit black &
-    white via 50% threshold — clean, like Photoshop's Bitmap mode),
-    jpeg (quality 10-100)."""
+PDF_DPI = 300.0          # pixel -> PDF point mapping for scanned pages
+PDF_FONT = "/System/Library/Fonts/Supplemental/Tahoma.ttf"  # Latin+Arabic
+
+
+def save_output(img, path, fmt=None, blocks=None):
+    """Write the rendered page.  fmt: {"kind": ..., "quality": int,
+    "pdf": bool}.  Kinds: png (truecolor), png8 (web palette + pattern
+    dither), png8g (8 shades of gray, pattern dither), png1 (1-bit black
+    & white via 50% threshold — clean, like Photoshop's Bitmap mode),
+    jpeg (quality 10-100).  With "pdf" the image (in that same format)
+    is wrapped in a one-page PDF with an invisible, searchable text
+    layer built from `blocks`."""
+    if (fmt or {}).get("pdf"):
+        save_pdf(img, path, fmt, blocks or [])
+        return
     kind = (fmt or {}).get("kind", "png")
     if kind == "jpeg":
         img.save(path, "JPEG", quality=int(fmt.get("quality", 60)),
@@ -726,13 +735,102 @@ def save_output(img, path, fmt=None):
         img.save(path, "PNG")
 
 
+RTL_CHAR_RE = re.compile(r"[֐-ࣿ]")
+
+
+def _visual_rtl(line):
+    """Logical -> visual order for an RTL line (LTR runs keep their
+    internal order).  PDF text extractors bidi-flip visually ordered
+    text back to logical, so writing visual order makes the hidden
+    layer searchable with normal (logical) Arabic strings."""
+    rev = line[::-1]
+    return re.sub(r"[A-Za-z0-9]+(?: +[A-Za-z0-9]+)*",
+                  lambda m: m.group()[::-1], rev)
+
+
+def save_pdf(img, path, fmt, blocks):
+    """One-page PDF: the rendered image (encoded per fmt["kind"]) plus an
+    invisible text layer (PDF render mode 3) so the page is searchable.
+    The hidden lines reuse the renderer's own wrap/position math, so
+    search highlights land on the visible text.  The layer is written
+    with reportlab (raw logical codepoints, no shaping — MuPDF-based
+    insertion would store Arabic as unsearchable presentation forms)
+    and merged onto the image page with PyMuPDF."""
+    import io
+    import fitz                      # PyMuPDF
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    W, H = img.size
+    s = 72.0 / PDF_DPI
+    pw, ph = W * s, H * s
+
+    # ---------- invisible, searchable text layer
+    try:
+        pdfmetrics.getFont("overlay")
+    except KeyError:
+        pdfmetrics.registerFont(TTFont("overlay", PDF_FONT))
+    tbuf = io.BytesIO()
+    c = rl_canvas.Canvas(tbuf, pagesize=(pw, ph))
+    t = c.beginText()
+    t.setTextRenderMode(3)           # invisible
+    draw = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    rtl = is_rtl()
+    for blk in blocks:
+        if "en" not in blk or blk.get("deleted"):
+            continue
+        x0, y0, x1, y1 = blk.get("gui_bbox") or blk["bbox"]
+        slots = [sg for ln in blk.get("lines", [])
+                 for sg in ln.get("segs", [ln])]
+        med_h = (sorted(sg["h"] for sg in slots)[len(slots) // 2]
+                 if slots else MIN_FONT)
+        size = int(blk.get("font_px") or max(MIN_FONT, med_h * 0.88))
+        ls = float(blk.get("line_spacing") or 1.0)
+        font = load_font(size)
+        lines = wrap_text(draw, blk["en"], font, x1 - x0)
+        align = blk.get("align") or ("right" if rtl else "left")
+        direction = "rtl" if rtl else None
+        ascent, descent = font.getmetrics()
+        lh = size * ls
+        t.setFont("overlay", size * s)
+        y = y0 + (lh - (ascent + descent)) / 2 + ascent   # baseline, px
+        for line in lines:
+            if line.strip():
+                x = x0
+                if align == "right":
+                    x = x1 - draw.textlength(line, font=font,
+                                             direction=direction)
+                out = (_visual_rtl(line) if RTL_CHAR_RE.search(line)
+                       else line)
+                t.setTextOrigin(x * s, ph - y * s)   # PDF y-axis is up
+                t.textOut(out)
+            y += lh
+    c.drawText(t)
+    c.showPage()
+    c.save()
+
+    # ---------- image page + merge
+    ibuf = io.BytesIO()
+    save_output(img, ibuf, {k: v for k, v in (fmt or {}).items()
+                            if k != "pdf"})
+    doc = fitz.open()
+    page = doc.new_page(width=pw, height=ph)
+    page.insert_image(fitz.Rect(0, 0, pw, ph), stream=ibuf.getvalue())
+    overlay = fitz.open("pdf", tbuf.getvalue())
+    page.show_pdf_page(page.rect, overlay, 0)
+    doc.save(path, deflate=True, garbage=3)
+    doc.close()
+
+
 def process_page(src, out_dir, force=False, out_png=None, fmt=None):
     page_png, blocks, keepouts = prepare_page(src, out_dir, force)
     img = Image.open(page_png)
     set_scale(img.size[0])
     out_png = out_png or out_dir / f"{src.stem}_{TARGET_LANG}.png"
     log("  rendering...")
-    save_output(render_page(img, blocks, keepouts), out_png, fmt)
+    save_output(render_page(img, blocks, keepouts), out_png, fmt,
+                blocks=blocks)
     log(f"  wrote {out_png.name}")
     return out_png
 
