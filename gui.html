@@ -170,7 +170,8 @@
     </div>
   </div>
   <div class="sep"></div>
-  <button id="delblk" disabled title="Delete selected block (Del)">🗑</button>
+  <button id="delblk" disabled
+          title="Delete selected block (Del / Backspace)">🗑</button>
   <button id="undodel" disabled title="Undo last delete/move (⌘Z)">↩</button>
   <span id="status"></span>
 </div>
@@ -181,7 +182,7 @@
     <label for="save-format">Output format</label>
     <select id="save-format">
       <option value="png">PNG</option>
-      <option value="png8">PNG Optimized (web palette, pattern dither)</option>
+      <option value="png8">PNG Optimized (web palette, Bayer pattern dither)</option>
       <option value="png8g">PNG-8 Grayscale (8 shades)</option>
       <option value="png1">PNG 1-bit (black &amp; white)</option>
       <option value="jpeg60">JPEG High (60% quality)</option>
@@ -479,7 +480,8 @@ document.addEventListener('keydown', e => {
     performUndo();
     return;
   }
-  if (selected && (e.key === 'Delete' || e.keyCode === 46)) {
+  if (selected && (e.key === 'Delete' || e.key === 'Backspace'
+                   || e.keyCode === 46 || e.keyCode === 8)) {
     e.preventDefault();
     deleteBlock();
     return;
@@ -669,6 +671,19 @@ async function performUndo() {
     await flushSave();
     await saveDeleted(u.page, u.id, false);
     if (u.page === cur) loadPage(cur);   // rebuild to show the revived block
+    return;
+  }
+  if (u.type === 'create') {            // undo a created box = delete it
+    if (u.page === cur) {
+      const b = page.blocks.find(x => x.id === u.id);
+      if (b) {
+        if (selected === b) deselect();
+        b._patches.forEach(p => p.remove());
+        b._div.remove();
+        page.blocks = page.blocks.filter(x => x !== b);
+      }
+    }
+    await saveDeleted(u.page, u.id, true);
     return;
   }
   // move: restore the block's pre-move rectangle
@@ -910,6 +925,7 @@ $('stage').addEventListener('dblclick', async e => {
                  patches: [], edited: true};
     page.blocks.push(blk);
     addBlockDom(blk);
+    pushUndo({type: 'create', page: cur, id: blk.id});
     select(blk);
     blk._txt.contentEditable = 'true';   // start typing right away
     blk._txt.focus();

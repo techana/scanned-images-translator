@@ -675,15 +675,19 @@ def save_png_optimized(img, path):
 
 
 def save_png_gray(img, path, levels=8):
-    """Palettized grayscale PNG with `levels` shades (pattern-dithered)."""
+    """Palettized grayscale PNG, Bayer-dithered onto a FIXED evenly-spaced
+    ramp of `levels` shades from pure black (0) to pure white (255) —
+    the palette always contains exactly these shades, whatever the page
+    happens to contain."""
     import numpy as np
     a = np.asarray(img.convert("L"), dtype=np.float32)
     h, w = a.shape
     step = 255.0 / (levels - 1)
     a += _bayer_offsets(h, w) * step
-    q = np.clip(np.round(a / step) * step, 0, 255).astype(np.uint8)
-    out = Image.fromarray(q, "L").quantize(colors=levels,
-                                           dither=Image.Dither.NONE)
+    idx = np.clip(np.round(a / step), 0, levels - 1).astype(np.uint8)
+    out = Image.fromarray(idx, "P")
+    ramp = [round(i * 255.0 / (levels - 1)) for i in range(levels)]
+    out.putpalette([v for g in ramp for v in (g, g, g)])
     out.save(path, "PNG", optimize=True)
 
 
