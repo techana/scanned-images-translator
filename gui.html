@@ -217,6 +217,10 @@
 <div id="modalbg" class="modalbg">
   <div id="settingsmodal" class="modal">
     <h2>Settings</h2>
+    <label style="display:flex; align-items:center; gap:8px; margin-top:4px">
+      <input type="checkbox" id="sett-ocr" checked>
+      Run OCR &amp; translation on new pages
+    </label>
     <label for="sett-source">Source language (OCR)</label>
     <select id="sett-source"></select>
     <label for="sett-target">Target language</label>
@@ -362,6 +366,7 @@ $('settingsitem').onclick = async () => {
     fillLangSelect($('sett-source'), s.ocr_langs, s.ocr_lang);
     fillLangSelect($('sett-target'), s.translate_langs, s.target);
     $('sett-engine').value = s.engine || 'auto';
+    $('sett-ocr').checked = s.ocr !== false;
     $('modalbg').classList.add('show');
     refreshAppleStatus();
   } catch (e) { setStatus('Settings failed: ' + e.message, true); }
@@ -375,7 +380,8 @@ $('modalbg').addEventListener('mousedown', e => {
 $('sett-save').onclick = async () => {
   const body = {ocr_lang: $('sett-source').value,
                 target: $('sett-target').value,
-                engine: $('sett-engine').value};
+                engine: $('sett-engine').value,
+                ocr: $('sett-ocr').checked};
   try {
     const r = await fetch('/api/settings', {method: 'POST',
         headers: {'Content-Type': 'application/json'},

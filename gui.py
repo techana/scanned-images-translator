@@ -89,11 +89,13 @@ def load_settings():
     try:
         return json.loads(SETTINGS_FILE.read_text())
     except Exception:
-        return {"ocr_lang": "ja-JP", "target": "en", "engine": "auto"}
+        return {"ocr_lang": "ja-JP", "target": "en", "engine": "auto",
+                "ocr": True}
 
 
 def apply_settings(s):
-    tp.set_langs(s.get("ocr_lang"), s.get("target"), s.get("engine"))
+    tp.set_langs(s.get("ocr_lang"), s.get("target"), s.get("engine"),
+                 ocr=s.get("ocr", True))
 
 
 # ------------------------------------------------------------- helpers
@@ -322,6 +324,8 @@ class Handler(BaseHTTPRequestHandler):
                 s = load_settings()
                 s.update({k: body[k] for k in ("ocr_lang", "target", "engine")
                           if body.get(k)})
+                if "ocr" in body:
+                    s["ocr"] = bool(body["ocr"])
                 SETTINGS_FILE.write_text(json.dumps(s, indent=1))
                 apply_settings(s)
                 self._send(200, {"ok": True})

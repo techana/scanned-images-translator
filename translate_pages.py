@@ -54,6 +54,7 @@ OCR_LANG = "ja-JP"        # Vision recognition language (./ocr --list-langs)
 SOURCE_LANG = "ja"        # translation source (derived from OCR_LANG)
 TARGET_LANG = "en"        # translation target (./translate --list-langs)
 ENGINE = "auto"           # auto = Apple first, then Google API, then gtx
+OCR_ENABLED = True        # off: new pages open blank (manual boxes only)
 
 
 RTL_LANGS = {"ar", "he", "fa", "ur"}
@@ -63,14 +64,16 @@ def is_rtl():
     return TARGET_LANG in RTL_LANGS
 
 
-def set_langs(ocr_lang=None, target=None, engine=None):
-    global OCR_LANG, SOURCE_LANG, TARGET_LANG, ENGINE
+def set_langs(ocr_lang=None, target=None, engine=None, ocr=None):
+    global OCR_LANG, SOURCE_LANG, TARGET_LANG, ENGINE, OCR_ENABLED
     if ocr_lang:
         OCR_LANG, SOURCE_LANG = ocr_lang, ocr_lang.split("-")[0]
     if target:
         TARGET_LANG = target
     if engine:
         ENGINE = engine
+    if ocr is not None:
+        OCR_ENABLED = bool(ocr)
 
 IMAGE_EXTS = {".jp2", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
@@ -622,25 +625,35 @@ def prepare_page(src, out_dir, force=False):
 
     if cache.exists() and not force:
         data = json.loads(cache.read_text())
-        # language change invalidates the page (edits included — they
-        # belong to the old translation); legacy caches were ja-JP -> en
-        if data.get("langs", ["ja-JP", "en"]) == [OCR_LANG, TARGET_LANG]:
+        stamp = data.get("langs", ["ja-JP", "en"])
+        # With OCR disabled any existing cache is used as-is (edits are
+        # never discarded by flipping the switch).  With OCR enabled, a
+        # language change or a blank no-OCR cache redoes the page (edits
+        # included — they belong to the old content); legacy caches were
+        # ja-JP -> en.
+        if not OCR_ENABLED or stamp == [OCR_LANG, TARGET_LANG]:
             return page_png, data["blocks"], data["keepouts"]
-        log(f"  language settings changed — redoing page")
+        log(f"  settings changed — redoing page")
 
-    log("  OCR...")
-    ocr_lines, keepouts = run_ocr(page_png)
-    blocks = []
-    for blk in group_blocks(ocr_lines):
-        blocks.append({"lines": blk, "bbox": block_bbox(blk),
-                       "text": block_text(blk)})
-    todo = [b for b in blocks if needs_translation(b["text"])]
-    log(f"  {len(blocks)} blocks, translating {len(todo)}...")
-    if todo:
-        for b, en in zip(todo, translate_batch([b["text"] for b in todo])):
-            b["en"] = en
+    if OCR_ENABLED:
+        log("  OCR...")
+        ocr_lines, keepouts = run_ocr(page_png)
+        blocks = []
+        for blk in group_blocks(ocr_lines):
+            blocks.append({"lines": blk, "bbox": block_bbox(blk),
+                           "text": block_text(blk)})
+        todo = [b for b in blocks if needs_translation(b["text"])]
+        log(f"  {len(blocks)} blocks, translating {len(todo)}...")
+        if todo:
+            for b, en in zip(todo, translate_batch([b["text"] for b in todo])):
+                b["en"] = en
+        stamp = [OCR_LANG, TARGET_LANG]
+    else:
+        log("  OCR disabled — blank page (manual text boxes only)")
+        blocks, keepouts = [], []
+        stamp = [OCR_LANG, TARGET_LANG, "no-ocr"]
     cache.write_text(json.dumps({"blocks": blocks, "keepouts": keepouts,
-                                 "langs": [OCR_LANG, TARGET_LANG]},
+                                 "langs": stamp},
                                 ensure_ascii=False, indent=1))
     return page_png, blocks, keepouts
 
