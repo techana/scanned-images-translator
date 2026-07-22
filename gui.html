@@ -980,6 +980,12 @@ async function doSave() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({edits})}).then(r => r.json());
     if (r.error) throw new Error(r.error);
+    // move the diff baseline to what was just persisted — otherwise
+    // reverting a field to its load-time value would never be saved
+    for (const b of page.blocks)
+      b._orig = {en: b.en, bbox: JSON.stringify(b.bbox), font: b.font_px,
+                 ls: b.line_spacing, color: b.color, bg: b.bg,
+                 align: b.align};
     setStatus('Saved');
     setTimeout(() => { if ($('status').textContent === 'Saved') setStatus(''); }, 1500);
   } catch (e) { setStatus('Save failed: ' + e.message, true); }
