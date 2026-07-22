@@ -54,6 +54,9 @@ STATE = {"files": [], "out": None,   # out: forced output dir (else input dir)
 FORMAT_MAP = {
     "png":    ({"kind": "png"}, ".png"),
     "png8":   ({"kind": "png8"}, ".png"),
+    "png8a":  ({"kind": "png8a"}, ".png"),
+    "png8g":  ({"kind": "png8g"}, ".png"),
+    "png1":   ({"kind": "png1"}, ".png"),
     "jpeg60": ({"kind": "jpeg", "quality": 60}, ".jpg"),
     "jpeg30": ({"kind": "jpeg", "quality": 30}, ".jpg"),
     "jpeg10": ({"kind": "jpeg", "quality": 10}, ".jpg"),

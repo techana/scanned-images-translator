@@ -670,14 +670,26 @@ def save_png_optimized(img, path):
 
 
 def save_output(img, path, fmt=None):
-    """Write the rendered page.  fmt: {"kind": "png"|"png8"|"jpeg",
-    "quality": int} — default plain truecolor PNG."""
+    """Write the rendered page.  fmt: {"kind": ..., "quality": int}.
+    Kinds: png (truecolor), png8 (web palette + pattern dither),
+    png8a (adaptive 256-color palette, diffusion dither),
+    png8g (8-bit grayscale), png1 (1-bit black & white, diffusion
+    dither), jpeg (quality 10-100)."""
     kind = (fmt or {}).get("kind", "png")
     if kind == "jpeg":
         img.save(path, "JPEG", quality=int(fmt.get("quality", 60)),
                  optimize=True)
     elif kind == "png8":
         save_png_optimized(img, path)
+    elif kind == "png8a":
+        img.convert("RGB").quantize(
+            colors=256, method=Image.Quantize.MEDIANCUT,
+            dither=Image.Dither.FLOYDSTEINBERG).save(path, "PNG",
+                                                     optimize=True)
+    elif kind == "png8g":
+        img.convert("L").save(path, "PNG", optimize=True)
+    elif kind == "png1":
+        img.convert("1").save(path, "PNG", optimize=True)
     else:
         img.save(path, "PNG")
 
