@@ -645,10 +645,8 @@ def prepare_page(src, out_dir, force=False):
     return page_png, blocks, keepouts
 
 
-def save_png_optimized(img, path):
-    """PNG-8 with the web-safe ("restrictive") palette and ordered Bayer
-    pattern dithering — Photoshop's Save-for-Web PNG-8/Restrictive/Pattern
-    combo. Roughly 6x smaller than truecolor PNG on scanned pages."""
+def _bayer_offsets(h, w):
+    """(h, w) ordered-dither threshold offsets in (-0.5, 0.5)."""
     import numpy as np
     bayer = np.array([[ 0, 32,  8, 40,  2, 34, 10, 42],
                       [48, 16, 56, 24, 50, 18, 58, 26],
@@ -658,38 +656,55 @@ def save_png_optimized(img, path):
                       [51, 19, 59, 27, 49, 17, 57, 25],
                       [15, 47,  7, 39, 13, 45,  5, 37],
                       [63, 31, 55, 23, 61, 29, 53, 21]], dtype=np.float32)
+    return np.tile((bayer + 0.5) / 64.0 - 0.5,
+                   (h // 8 + 1, w // 8 + 1))[:h, :w]
+
+
+def save_png_optimized(img, path):
+    """PNG-8 with the web-safe ("restrictive") palette and ordered Bayer
+    pattern dithering — Photoshop's Save-for-Web PNG-8/Restrictive/Pattern
+    combo. Roughly 6x smaller than truecolor PNG on scanned pages."""
+    import numpy as np
     a = np.asarray(img.convert("RGB"), dtype=np.float32)
     h, w = a.shape[:2]
-    # threshold offset in (-0.5, 0.5) * palette step (web-safe step = 51)
-    t = np.tile((bayer + 0.5) / 64.0 - 0.5, (h // 8 + 1, w // 8 + 1))[:h, :w]
-    a += t[..., None] * 51.0
+    a += _bayer_offsets(h, w)[..., None] * 51.0   # web-safe step = 51
     q = np.clip(np.round(a / 51.0) * 51.0, 0, 255).astype(np.uint8)
     out = Image.fromarray(q, "RGB").convert(
         "P", palette=Image.Palette.WEB, dither=Image.Dither.NONE)
     out.save(path, "PNG", optimize=True)
 
 
+def save_png_gray(img, path, levels=8):
+    """Palettized grayscale PNG with `levels` shades (pattern-dithered)."""
+    import numpy as np
+    a = np.asarray(img.convert("L"), dtype=np.float32)
+    h, w = a.shape
+    step = 255.0 / (levels - 1)
+    a += _bayer_offsets(h, w) * step
+    q = np.clip(np.round(a / step) * step, 0, 255).astype(np.uint8)
+    out = Image.fromarray(q, "L").quantize(colors=levels,
+                                           dither=Image.Dither.NONE)
+    out.save(path, "PNG", optimize=True)
+
+
 def save_output(img, path, fmt=None):
     """Write the rendered page.  fmt: {"kind": ..., "quality": int}.
     Kinds: png (truecolor), png8 (web palette + pattern dither),
-    png8a (adaptive 256-color palette, diffusion dither),
-    png8g (8-bit grayscale), png1 (1-bit black & white, diffusion
-    dither), jpeg (quality 10-100)."""
+    png8g (8 shades of gray, pattern dither), png1 (1-bit black &
+    white via 50% threshold — clean, like Photoshop's Bitmap mode),
+    jpeg (quality 10-100)."""
     kind = (fmt or {}).get("kind", "png")
     if kind == "jpeg":
         img.save(path, "JPEG", quality=int(fmt.get("quality", 60)),
                  optimize=True)
     elif kind == "png8":
         save_png_optimized(img, path)
-    elif kind == "png8a":
-        img.convert("RGB").quantize(
-            colors=256, method=Image.Quantize.MEDIANCUT,
-            dither=Image.Dither.FLOYDSTEINBERG).save(path, "PNG",
-                                                     optimize=True)
     elif kind == "png8g":
-        img.convert("L").save(path, "PNG", optimize=True)
+        save_png_gray(img, path, levels=8)
     elif kind == "png1":
-        img.convert("1").save(path, "PNG", optimize=True)
+        bw = img.convert("L").point(lambda v: 255 if v >= 128 else 0)
+        bw.convert("1", dither=Image.Dither.NONE).save(path, "PNG",
+                                                       optimize=True)
     else:
         img.save(path, "PNG")
 
