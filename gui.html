@@ -696,11 +696,15 @@ function addBlockDom(blk) {
     txt.contentEditable = 'true';
     txt.focus();
   });
+  // live overflow check while typing, not only on blur — pressing Enter
+  // at the end of a box must flag it immediately
+  txt.addEventListener('input', () => updateOverflow(blk));
   txt.addEventListener('blur', () => {
     txt.contentEditable = 'false';
     const t = txt.innerText.replace(/\u00a0/g, ' ')  // NBSP -> plain space
         .replace(/\s+$/, '');  // trailing newlines would grow the backing
-    if (t !== blk.en) { blk.en = t; txt.innerText = t; scheduleSave(); }
+    if (txt.innerText !== t) txt.innerText = t;   // normalize the DOM too
+    if (t !== blk.en) { blk.en = t; scheduleSave(); }
     updateOverflow(blk);
   });
 }
@@ -713,12 +717,28 @@ function placeBlock(blk) {
   updateOverflow(blk);
 }
 
+// The browser gives a trailing newline no height (offsetHeight ignores
+// it), but it is real content that extends past the box — measure with a
+// probe that appends a zero-width char so trailing lines count.
+function textHeight(blk) {
+  const t = blk._txt;
+  if (!/\n\s*$/.test(t.innerText)) return t.offsetHeight;
+  const probe = t.cloneNode(false);
+  probe.textContent = t.innerText + '\u200b';
+  probe.style.visibility = 'hidden';
+  probe.style.position = 'absolute';
+  blk._div.appendChild(probe);
+  const h = probe.offsetHeight;
+  probe.remove();
+  return h;
+}
+
 // Mark blocks whose text extends beyond the box rectangle (such text can
 // be hidden under other blocks' backings): red ring + red top-right dot.
 function updateOverflow(blk) {
   if (!blk._txt) return;
   const [x0, y0, x1, y1] = blk.bbox;
-  const over = blk._txt.offsetHeight > (y1 - y0) + 2
+  const over = textHeight(blk) > (y1 - y0) + 2
             || blk._txt.scrollWidth > (x1 - x0) + 2;
   const ring = Math.max(4, Math.round(blk.font_px * 0.08));
   blk._div.style.boxShadow = over ? `0 0 0 ${ring}px #e03131` : '';
