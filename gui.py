@@ -161,6 +161,7 @@ def page_json(idx):
             "line_spacing": blk.get("line_spacing") or 1.0,
             "color": blk.get("font_color") or "#141414",
             "bg": blk.get("bg_color") or "#ffffff",
+            "align": blk.get("align") or ("right" if tp.is_rtl() else "left"),
             "patches": patches,
             # geometry-edited blocks lost their auto erase patches for good
             "edited": ("gui_bbox" in blk or "font_px" in blk
@@ -227,6 +228,8 @@ def save_edits(idx, edits):
                 blk["font_color"] = str(e["color"])
             if "bg" in e:
                 blk["bg_color"] = str(e["bg"])
+            if "align" in e:
+                blk["align"] = str(e["align"])
             if "deleted" in e:
                 blk["deleted"] = bool(e["deleted"])
         cache.write_text(json.dumps(data, ensure_ascii=False, indent=1))

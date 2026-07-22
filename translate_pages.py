@@ -547,14 +547,16 @@ def render_gui_block(draw, blk, med_h):
     ascent, descent = font.getmetrics()
     y = y0 + (lh - (ascent + descent)) / 2
     rtl = is_rtl()
+    # alignment is user-settable per block; the BiDi base direction stays
+    # tied to the target language (RTL shaping survives left-alignment)
+    align = blk.get("align") or ("right" if rtl else "left")
+    direction = "rtl" if rtl else None
+    fill = blk.get("font_color") or (20, 20, 20)
     for line in lines:
-        if rtl:      # right-aligned, explicit RTL base direction (raqm)
-            w = draw.textlength(line, font=font, direction="rtl")
-            draw.text((x1 - w, y), line, font=font, direction="rtl",
-                      fill=blk.get("font_color") or (20, 20, 20))
-        else:
-            draw.text((x0, y), line, font=font,
-                      fill=blk.get("font_color") or (20, 20, 20))
+        x = x0
+        if align == "right":
+            x = x1 - draw.textlength(line, font=font, direction=direction)
+        draw.text((x, y), line, font=font, direction=direction, fill=fill)
         y += lh
 
 

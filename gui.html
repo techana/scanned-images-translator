@@ -26,18 +26,25 @@
       border-radius: 5px; padding: 4px 2px 4px 6px; font: inherit; }
   #fontsize { width: 58px; }
   #linespace { width: 52px; }
-  #bgbtn { padding: 4px 8px; }
-  #bgbtn .sw { display: inline-block; width: 13px; height: 13px;
+  #bgbtn, #colorbtn { padding: 4px 8px; }
+  #topbar .sw { display: inline-block; width: 13px; height: 13px;
       border-radius: 3px; background: #fff; border: 1px solid #888;
       vertical-align: -2px; margin: 0 4px 0 6px; }
   #bgbtn.active { outline: 2px solid #6f9dff; }
-  #bgmenu { position: absolute; top: calc(100% + 4px); left: 0; display: none;
+  #alignleft.on, #alignright.on { outline: 2px solid #6f9dff; }
+  #bgmenu, #colormenu { position: absolute; top: calc(100% + 4px); left: 0;
+            display: none;
             background: #2f3136; border: 1px solid #55585e; border-radius: 6px;
             min-width: 150px; overflow: hidden; box-shadow: 0 6px 18px #0009;
             z-index: 150; }
-  #bgmenu.show { display: block; }
-  #bgmenu div { padding: 8px 14px; cursor: pointer; white-space: nowrap; }
-  #bgmenu div:hover { background: #4a4d53; }
+  #bgmenu.show, #colormenu.show { display: block; }
+  #bgmenu div, #colormenu div { padding: 8px 14px; cursor: pointer;
+                                white-space: nowrap; }
+  #bgmenu div:hover, #colormenu div:hover { background: #4a4d53; }
+  #colormenu .csw { display: inline-block; width: 13px; height: 13px;
+      border-radius: 3px; border: 1px solid #888; vertical-align: -2px;
+      margin-right: 8px; }
+  #colormenu { max-height: 320px; overflow-y: auto; }
   .sep { width: 1px; height: 22px; background: #45484e; }
   #counter { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
   #pagename { color: #999; max-width: 220px; overflow: hidden;
@@ -141,13 +148,18 @@
   <label class="ctl" title="Line spacing">Spacing
     <input type="number" id="linespace" min="0.5" max="3" step="0.1" disabled>
   </label>
-  <label class="ctl">Color
-    <select id="fontcolor" disabled></select>
-  </label>
+  <button id="alignleft" disabled title="Align text left">⍇</button>
+  <button id="alignright" disabled title="Align text right">⍈</button>
+  <div id="colorwrap" style="position:relative">
+    <button id="colorbtn" disabled title="Font color of the selected block">
+      Color<span class="sw" id="colorswatch"></span> ▾
+    </button>
+    <div id="colormenu"></div>
+  </div>
   <div id="bgwrap" style="position:relative">
     <button id="bgbtn" disabled
-            title="Background of the selected block">
-      Background<span class="sw" id="bgswatch"></span> ▾
+            title="Patch (background) of the selected block">
+      Patch<span class="sw" id="bgswatch"></span> ▾
     </button>
     <div id="bgmenu">
       <div id="bg-white">White</div>
@@ -412,9 +424,40 @@ $('opacity').oninput = e => {
 };
 
 const fontSize = $('fontsize'), lineSpace = $('linespace');
-const fontColor = $('fontcolor'), bgPick = $('bgbtn');
-COLORS.forEach(([name, hex]) => fontColor.add(new Option(name, hex)));
-fontColor.value = '';               // blank until a block is selected
+const colorBtn = $('colorbtn'), bgPick = $('bgbtn');
+const colorMenu = $('colormenu');
+COLORS.forEach(([name, hex]) => {
+  const item = document.createElement('div');
+  item.innerHTML = `<span class="csw" style="background:${hex}"></span>${name}`;
+  item.onclick = () => {
+    colorMenu.classList.remove('show');
+    if (!selected) return;
+    selected.color = hex;
+    selected._txt.style.color = hex;
+    $('colorswatch').style.background = hex;
+    scheduleSave();                 // color edits keep the auto patches
+  };
+  colorMenu.appendChild(item);
+});
+colorBtn.onclick = e => {
+  e.stopPropagation();
+  if (selected) colorMenu.classList.toggle('show');
+};
+
+// ------------------------- per-block text alignment (keeps dir/RTL)
+function applyAlign(align) {
+  if (!selected) return;
+  selected.align = align;
+  selected._txt.style.textAlign = align;   // dir attribute stays untouched
+  setAlignButtons(align);
+  scheduleSave();
+}
+function setAlignButtons(align) {
+  $('alignleft').classList.toggle('on', align === 'left');
+  $('alignright').classList.toggle('on', align === 'right');
+}
+$('alignleft').onclick = () => applyAlign('left');
+$('alignright').onclick = () => applyAlign('right');
 
 // Bind BOTH 'input' and 'change': some engines (WebKit) fire only
 // 'change' for spinner / arrow-key stepping on number inputs, which
@@ -443,12 +486,6 @@ function applyLineSpace() {
 lineSpace.addEventListener('input', applyLineSpace);
 lineSpace.addEventListener('change', applyLineSpace);
 
-fontColor.onchange = () => {
-  if (!selected) return;
-  selected.color = fontColor.value;
-  selected._txt.style.color = selected.color;
-  scheduleSave();                   // color edits keep the auto patches
-};
 
 // -------- patch-color eyedropper: pick from the ORIGINAL page image
 let picking = false, pickCanvas = null;
@@ -475,7 +512,10 @@ bgPick.onclick = e => {
   e.stopPropagation();
   if (selected) bgMenu.classList.toggle('show');
 };
-document.addEventListener('click', () => bgMenu.classList.remove('show'));
+document.addEventListener('click', () => {
+  bgMenu.classList.remove('show');
+  colorMenu.classList.remove('show');
+});
 $('bg-white').onclick = () => {
   bgMenu.classList.remove('show');
   if (!selected) return;
@@ -676,14 +716,15 @@ function addBlockDom(blk) {
   txt.innerText = blk.en;
   Object.assign(txt.style, {fontSize: blk.font_px + 'px',
                             lineHeight: blk.line_spacing,
-                            color: blk.color, background: blk.bg});
+                            color: blk.color, background: blk.bg,
+                            textAlign: blk.align});
   div.appendChild(txt);
   ov.appendChild(div);
   blk._div = div; blk._txt = txt;
   // per-field baseline: save only what the user actually changes
   blk._orig = {en: blk.en, bbox: JSON.stringify(blk.bbox),
                font: blk.font_px, ls: blk.line_spacing,
-               color: blk.color, bg: blk.bg};
+               color: blk.color, bg: blk.bg, align: blk.align};
   placeBlock(blk);
 
   div.addEventListener('mousedown', e => {
@@ -798,12 +839,14 @@ function select(blk) {
   selected = blk;
   blk._div.classList.add('selected');
   addHandles(blk);
-  for (const el of [fontSize, lineSpace, fontColor, bgPick, $('delblk')])
+  for (const el of [fontSize, lineSpace, colorBtn, bgPick, $('delblk'),
+                    $('alignleft'), $('alignright')])
     el.disabled = false;
   fontSize.value = blk.font_px;
   lineSpace.value = blk.line_spacing;
-  fontColor.value = COLORS.some(c => c[1] === blk.color) ? blk.color : '#141414';
+  $('colorswatch').style.background = blk.color;
   $('bgswatch').style.background = blk.bg;
+  setAlignButtons(blk.align);
 }
 
 function deselect() {
@@ -812,9 +855,12 @@ function deselect() {
   selected._div.classList.remove('selected');
   selected._div.querySelectorAll('.handle').forEach(h => h.remove());
   selected = null;
-  fontSize.value = lineSpace.value = fontColor.value = '';
+  fontSize.value = lineSpace.value = '';
   $('bgswatch').style.background = '#fff';
-  for (const el of [fontSize, lineSpace, fontColor, bgPick, $('delblk')])
+  $('colorswatch').style.background = '#fff';
+  setAlignButtons(null);
+  for (const el of [fontSize, lineSpace, colorBtn, bgPick, $('delblk'),
+                    $('alignleft'), $('alignright')])
     el.disabled = true;
 }
 $('viewport').addEventListener('mousedown', e => {
@@ -924,6 +970,7 @@ async function doSave() {
     if (b.font_px !== b._orig.font) e.font_px = b.font_px;
     if (b.line_spacing !== b._orig.ls) e.line_spacing = b.line_spacing;
     if (b.color !== b._orig.color) e.color = b.color;
+    if (b.align !== b._orig.align) e.align = b.align;
     if (b.bg !== b._orig.bg) e.bg = b.bg;
     if (Object.keys(e).length > 1) edits.push(e);
   }
