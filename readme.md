@@ -32,6 +32,14 @@ and artwork untouched.*
 - **Batch a whole book** from the command line; every page is cached, so
   re-runs take seconds.
 
+## Samples
+
+One page of a 1990s Japanese car-manual, straight out of the tool:
+
+- [Original scanned page (Japanese)](docs/example_page_org.jpg)
+- [Translated to English — PDF with a searchable text layer](docs/example_page_en.pdf)
+- [Translated to Arabic — optimized PNG-8](docs/example_page_ar.png)
+
 ## Installation
 
 Requires macOS 15 or newer and the Xcode Command Line Tools
