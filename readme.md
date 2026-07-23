@@ -34,11 +34,18 @@ and artwork untouched.*
 
 ## Samples
 
-One page of a 1990s Japanese car-manual, straight out of the tool:
+Pages of a 1990s Japanese car-manual, straight out of the tool.
+
+Example 1:
 
 - [Original scanned page (Japanese)](docs/example_page_org.jpg)
 - [Translated to English — PDF with a searchable text layer](docs/example_page_en.pdf)
 - [Translated to Arabic — optimized PNG-8](docs/example_page_ar.png)
+
+Example 2:
+
+- [Original scanned page (Japanese)](docs/example2_page_org.jpg)
+- [Translated to English — optimized PNG-8](docs/example2_page_en.png)
 
 ## Installation
 
