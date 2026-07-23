@@ -294,9 +294,18 @@ document.addEventListener('click', () => openMenu.classList.remove('show'));
 openMenu.querySelectorAll('div[data-kind]').forEach(item => item.onclick = async e => {
   openMenu.classList.remove('show');
   setStatus('Waiting for file dialog…');
-  const r = await fetch('/api/open', {method: 'POST',
+  let r = await fetch('/api/open', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({kind: item.dataset.kind})}).then(r => r.json());
+  if (r.no_dialog) {          // no native dialog (e.g. headless Linux)
+    const kindTxt = item.dataset.kind === 'folder' ? 'folder' : 'image file';
+    const p = prompt('No file dialog is available. Enter the full path to '
+                     + 'the ' + kindTxt + ':');
+    if (!p) { setStatus(''); return; }
+    r = await fetch('/api/open', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: p})}).then(r => r.json());
+  }
   if (r.cancelled) { setStatus(''); return; }
   if (r.error) { setStatus(r.error, true); return; }
   total = r.total;
@@ -407,7 +416,10 @@ async function refreshAppleStatus() {
   try {
     const r = await fetch(`/api/applestatus?source=${src}&target=${tgt}`)
         .then(r => r.json());
-    if (r.status === 'installed') {
+    if (r.status === 'unavailable') {
+      note.textContent = 'Apple translation is macOS-only — Google is used '
+          + 'on this system.';
+    } else if (r.status === 'installed') {
       note.textContent = `Apple translation ${src} → ${tgt}: language pack installed ✓`;
     } else if (r.status === 'supported') {
       note.textContent = `Apple translation ${src} → ${tgt}: language pack not `
@@ -557,12 +569,19 @@ $('aboutbg').addEventListener('mousedown', e => {
   if (e.target === $('aboutbg')) $('aboutbg').classList.remove('show');
 });
 
-async function renderAs(fmt) {
+async function renderAs(fmt, path) {
   setStatus('Waiting for save dialog…');
+  const body = {format: fmt.format, pdf: fmt.pdf};
+  if (path) body.path = path;
   const r = await fetch('/api/page/' + cur + '/render_as', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({format: fmt.format, pdf: fmt.pdf})})
-      .then(r => r.json());
+      body: JSON.stringify(body)}).then(r => r.json());
+  if (r.no_dialog) {           // no native save dialog — ask for a path
+    const p = prompt('No file dialog is available. Enter the full path to '
+                     + 'save to:', r.suggested || '');
+    if (!p) { setStatus(''); return; }
+    return renderAs(fmt, p);
+  }
   if (r.cancelled) { setStatus(''); return; }
   if (r.error) throw new Error(r.error);
   setStatus('Saved ' + r.file + ' in ' + r.dir);
@@ -595,10 +614,19 @@ async function saveAll() {
                                 'folder. Unseen pages are OCR\'d + translated first.');
     if (!fmt) { setStatus(''); return; }
     setStatus('Waiting for folder dialog…');
-    const r = await fetch('/api/render_all', {method: 'POST',
+    const body = {format: fmt.format, pdf: fmt.pdf};
+    let r = await fetch('/api/render_all', {method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({format: fmt.format, pdf: fmt.pdf})})
-        .then(r => r.json());
+        body: JSON.stringify(body)}).then(r => r.json());
+    if (r.no_dialog) {
+      const p = prompt('No file dialog is available. Enter the full path to '
+                       + 'the output folder:');
+      if (!p) { setStatus(''); return; }
+      body.folder = p;
+      r = await fetch('/api/render_all', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)}).then(r => r.json());
+    }
     if (r.cancelled) { setStatus(''); return; }
     if (r.error) throw new Error(r.error);
     setStatus('Saved ' + r.count + ' pages in ' + r.dir);

@@ -33,6 +33,7 @@ re-render, which makes layout iteration nearly instant.
 import argparse
 import json
 import os
+import platform
 import re
 import sys
 import time
@@ -101,9 +102,21 @@ def set_langs(ocr_lang=None, target=None, engine=None, ocr_engine=None):
 
 IMAGE_EXTS = {".jp2", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
+# Fonts are resolved cross-platform: the first existing path wins, else a
+# scan of the OS font directories, else PIL's default (see load_font).
 FONT_CANDIDATES = [
+    # macOS
     "/System/Library/Fonts/Helvetica.ttc",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
+    # Linux (DejaVu / Liberation / Noto ship on most distros)
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    # Windows
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
 ]
 
 # Kana + kanji only: full-width digits/punctuation (ＦＦ００–ＦＦ６５) must NOT
@@ -592,22 +605,74 @@ def translate_text(text, retries=4):
 
 # ------------------------------------------------------------ rendering
 
-# Tahoma covers Arabic AND Latin (GeezaPro drops Latin glyphs under PIL,
-# so mixed strings like "لوحة MARTY" would show tofu boxes).
-ARABIC_FONTS = ["/System/Library/Fonts/Supplemental/Tahoma.ttf",
-                "/System/Library/Fonts/GeezaPro.ttc"]
+# Fonts that cover Arabic AND Latin (a single font must render mixed
+# strings like "لوحة MARTY" without tofu — GeezaPro drops Latin under PIL).
+ARABIC_FONTS = [
+    "/System/Library/Fonts/Supplemental/Tahoma.ttf",           # macOS
+    "/Library/Fonts/Arial Unicode.ttf",
+    "/System/Library/Fonts/GeezaPro.ttc",
+    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",  # Linux
+    "/usr/share/fonts/truetype/kacst/KacstOne.ttf",
+    "/usr/share/fonts/noto/NotoNaskhArabic-Regular.ttf",
+    "/usr/share/fonts/TTF/NotoNaskhArabic-Regular.ttf",
+    "C:/Windows/Fonts/tahoma.ttf",                             # Windows
+    "C:/Windows/Fonts/arial.ttf",
+]
+
+
+def _scan_font_dirs():
+    """First usable .ttf/.ttc/.otf found under the OS font directories —
+    a last resort when none of the known paths exist."""
+    import glob
+    system = platform.system()
+    if system == "Windows":
+        dirs = ["C:/Windows/Fonts", os.path.expanduser("~/AppData/Local/Microsoft/Windows/Fonts")]
+    elif system == "Darwin":
+        dirs = ["/System/Library/Fonts", "/Library/Fonts",
+                os.path.expanduser("~/Library/Fonts")]
+    else:
+        dirs = ["/usr/share/fonts", "/usr/local/share/fonts",
+                os.path.expanduser("~/.fonts"),
+                os.path.expanduser("~/.local/share/fonts")]
+    prefer = ("dejavusans.ttf", "notosans-regular.ttf",
+              "liberationsans-regular.ttf", "arial.ttf")
+    found = []
+    for d in dirs:
+        if os.path.isdir(d):
+            for ext in ("ttf", "ttc", "otf"):
+                found += glob.glob(os.path.join(d, "**", "*." + ext),
+                                   recursive=True)
+    for name in prefer:                 # a plain sans-serif if we can find one
+        for f in found:
+            if os.path.basename(f).lower() == name:
+                return f
+    return found[0] if found else None
+
+
+_font_fallback = None                   # cached result of the dir scan
 
 
 def load_font(size):
+    global _font_fallback
     # Helvetica has no Arabic glyphs; PIL+raqm shapes RTL fine with these
-    candidates = (ARABIC_FONTS + FONT_CANDIDATES if TARGET_LANG == "ar"
+    candidates = (ARABIC_FONTS + FONT_CANDIDATES if is_rtl()
                   else FONT_CANDIDATES)
     for path in candidates:
         try:
             return ImageFont.truetype(path, int(size))
         except OSError:
             continue
-    raise RuntimeError("no usable font found")
+    if _font_fallback is None:
+        _font_fallback = _scan_font_dirs() or ""
+    if _font_fallback:
+        try:
+            return ImageFont.truetype(_font_fallback, int(size))
+        except OSError:
+            pass
+    raise RuntimeError(
+        "no usable font found — install a TrueType font "
+        "(Linux: 'sudo apt install fonts-dejavu fonts-noto', "
+        "or fonts-noto-core for Arabic)")
 
 
 # Glyphs our render fonts lack -> closest equivalents.  The browser
@@ -865,7 +930,18 @@ def save_png_gray(img, path, levels=8):
 
 
 PDF_DPI = 300.0          # pixel -> PDF point mapping for scanned pages
-PDF_FONT = "/System/Library/Fonts/Supplemental/Tahoma.ttf"  # Latin+Arabic
+
+
+def pdf_font():
+    """A Latin+Arabic TrueType path for the PDF hidden-text layer,
+    resolved cross-platform (reuses the render-font search)."""
+    for p in ARABIC_FONTS + FONT_CANDIDATES:
+        if os.path.exists(p) and p.lower().endswith(".ttf"):
+            return p                    # reportlab TTFont needs a .ttf
+    scanned = _scan_font_dirs()
+    if scanned and scanned.lower().endswith(".ttf"):
+        return scanned
+    raise RuntimeError("no .ttf font found for the PDF text layer")
 
 
 def save_output(img, path, fmt=None, blocks=None):
@@ -930,7 +1006,7 @@ def save_pdf(img, path, fmt, blocks):
     try:
         pdfmetrics.getFont("overlay")
     except KeyError:
-        pdfmetrics.registerFont(TTFont("overlay", PDF_FONT))
+        pdfmetrics.registerFont(TTFont("overlay", pdf_font()))
     tbuf = io.BytesIO()
     c = rl_canvas.Canvas(tbuf, pagesize=(pw, ph))
     t = c.beginText()

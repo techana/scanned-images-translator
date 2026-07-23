@@ -10,7 +10,7 @@
 الجداول والرسوم والأيقونات والشعارات في أماكنها. ويمكنك بعد ذلك إذا أردت تعديل النتيجة
 في محرر مرئي على المتصفح.
 
-تخيّله مثل وضع الكاميرا في ترجمة Google، لكن بالدقة الكاملة، مع حرية تحرير النصوص المترجمة، والعمل دون اتصال إنترنت على جهاز Mac.
+تخيّله مثل وضع الكاميرا في ترجمة Google، لكن بالدقة الكاملة، مع حرية تحرير النصوص المترجمة، والعمل دون اتصال إنترنت. يعمل على macOS وLinux وWindows.
 
 <div dir="ltr">
 
@@ -52,31 +52,51 @@
 
 ## التثبيت
 
-يتطلب macOS 15 أو أحدث وأدوات سطر أوامر Xcode
-(نفّذ `xcode-select --install` إن لم تكن مثبتة).
+يعمل على **macOS وLinux وWindows**. تحتاج إلى Python 3، وللتعرّف الضوئي
+إمّا محرك Vision في macOS (الإصدار 15 أو أحدث) أو Tesseract في غير ذلك.
 
 <div dir="ltr">
 
 ```bash
 git clone https://github.com/techana/scanned-images-translator.git
 cd scanned-images-translator
+pip3 install -r requirements.txt
+```
 
-# اعتماديات بايثون
-pip3 install pillow numpy pymupdf reportlab
+</div>
 
-# اختياري: محرك Tesseract (فقط إن لم تستخدم Vision في macOS)
-#   brew install tesseract tesseract-lang   # macOS
-#   pip3 install pytesseract
+ثم هيّئ التعرّف الضوئي حسب نظامك:
 
-# بناء المساعدَين الصغيرين بلغة Swift (مرة واحدة)
+**macOS 15+** — محرك Vision المدمج هو الافتراضي؛ ابنِ المساعدَين بلغة
+Swift مرة واحدة (يتطلب أدوات Xcode: `xcode-select --install`):
+
+<div dir="ltr">
+
+```bash
 swiftc -O -o ocr ocr.swift
 swiftc -O -o translate translate.swift
 ```
 
 </div>
 
-هذا كل شيء. للترجمة دون اتصال سيعرض macOS تنزيل حزمة اللغات لزوج
-لغتك عند أول استخدام (مرة واحدة، ثم تعمل بلا إنترنت).
+**Linux** — ثبّت Tesseract وبيانات لغاته والخطوط:
+
+<div dir="ltr">
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-jpn tesseract-ocr-ara \
+                 fonts-dejavu fonts-noto zenity
+```
+
+</div>
+
+**Windows** — ثبّت [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
+(إصدار UB-Mannheim، مع اختيار بيانات اللغات أثناء التثبيت) وتأكد من أن
+`tesseract.exe` ضمن مسار PATH.
+
+على Linux وWindows يستخدم التطبيق افتراضيًا Tesseract للتعرّف الضوئي
+وGoogle للترجمة (مترجم Apple دون اتصال يعمل على macOS فقط). تُختار
+اللغات والمحركات في أي وقت من **Files ▾ ← Settings…**
 
 ## الاستخدام
 

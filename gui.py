@@ -29,7 +29,9 @@ afterwards), so opening a big folder is instant.
 
 import argparse
 import json
+import os
 import re
+import shutil
 import threading
 import subprocess
 import sys
@@ -135,31 +137,84 @@ def collect(path):
     return []
 
 
-def choose_path(kind):
-    """Native macOS open dialog via osascript; None if cancelled."""
-    if kind == "folder":
-        expr = 'choose folder with prompt "Choose a folder of scanned pages"'
-    else:
-        expr = 'choose file with prompt "Choose a scanned page image"'
+def dialog_available():
+    """Is a native file-dialog mechanism present on this OS?  When not
+    (e.g. a headless Linux without zenity/kdialog), the frontend falls
+    back to prompting for a path."""
+    if sys.platform == "darwin":
+        return bool(shutil.which("osascript"))
+    if os.name == "nt":
+        return bool(shutil.which("powershell") or shutil.which("pwsh"))
+    return bool(shutil.which("zenity") or shutil.which("kdialog"))
+
+
+def _run(args):
     try:
-        out = subprocess.run(["osascript", "-e", f"POSIX path of ({expr})"],
-                             capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
+        out = subprocess.run(args, capture_output=True, text=True, timeout=600)
+    except (subprocess.TimeoutExpired, OSError):
         return None
-    return out.stdout.strip() if out.returncode == 0 else None
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() \
+        else None
+
+
+def _win_dialog(mode, default_name=""):
+    ps = {
+        "openfile": ("Add-Type -AssemblyName System.Windows.Forms;"
+                     "$d=New-Object System.Windows.Forms.OpenFileDialog;"
+                     "if($d.ShowDialog() -eq 'OK'){$d.FileName}"),
+        "folder": ("Add-Type -AssemblyName System.Windows.Forms;"
+                   "$d=New-Object System.Windows.Forms.FolderBrowserDialog;"
+                   "if($d.ShowDialog() -eq 'OK'){$d.SelectedPath}"),
+        "savefile": ("Add-Type -AssemblyName System.Windows.Forms;"
+                     "$d=New-Object System.Windows.Forms.SaveFileDialog;"
+                     f"$d.FileName='{default_name}';"
+                     "if($d.ShowDialog() -eq 'OK'){$d.FileName}"),
+    }[mode]
+    exe = shutil.which("powershell") or shutil.which("pwsh")
+    return _run([exe, "-NoProfile", "-STA", "-Command", ps]) if exe else None
+
+
+def choose_path(kind):
+    """Native open dialog (folder / image file); None if cancelled or no
+    dialog tool is available.  macOS: osascript, Windows: PowerShell,
+    Linux: zenity or kdialog."""
+    if sys.platform == "darwin":
+        expr = ('choose folder with prompt "Choose a folder of scanned pages"'
+                if kind == "folder"
+                else 'choose file with prompt "Choose a scanned page image"')
+        return _run(["osascript", "-e", f"POSIX path of ({expr})"])
+    if os.name == "nt":
+        return _win_dialog("folder" if kind == "folder" else "openfile")
+    if shutil.which("zenity"):
+        args = ["zenity", "--file-selection", "--title=Choose scanned pages"]
+        if kind == "folder":
+            args.append("--directory")
+        return _run(args)
+    if shutil.which("kdialog"):
+        flag = "--getexistingdirectory" if kind == "folder" \
+            else "--getopenfilename"
+        return _run(["kdialog", flag, os.path.expanduser("~")])
+    return None
 
 
 def choose_save_path(default_name):
-    """Native macOS save dialog; None if cancelled."""
-    name = default_name.replace('"', '\\"')
-    expr = (f'POSIX path of (choose file name with prompt '
-            f'"Save translated page as" default name "{name}")')
-    try:
-        out = subprocess.run(["osascript", "-e", expr],
-                             capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        return None
-    return out.stdout.strip() if out.returncode == 0 else None
+    """Native save dialog; None if cancelled or no dialog tool available."""
+    if sys.platform == "darwin":
+        name = default_name.replace('"', '\\"')
+        return _run(["osascript", "-e",
+                     f'POSIX path of (choose file name with prompt '
+                     f'"Save translated page as" default name "{name}")'])
+    if os.name == "nt":
+        return _win_dialog("savefile", default_name)
+    home = os.path.expanduser("~")
+    if shutil.which("zenity"):
+        return _run(["zenity", "--file-selection", "--save",
+                     "--confirm-overwrite",
+                     "--filename=" + os.path.join(home, default_name)])
+    if shutil.which("kdialog"):
+        return _run(["kdialog", "--getsavefilename",
+                     os.path.join(home, default_name)])
+    return None
 
 
 def png_for(src):
@@ -323,6 +378,10 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(url.query)
                 src = qs.get("source", [""])[0]
                 tgt = qs.get("target", [""])[0]
+                # the Apple helper is macOS-only; report cleanly elsewhere
+                if not tp.TRANSLATE_BIN.exists():
+                    self._send(200, {"status": "unavailable"})
+                    return
                 try:
                     out = subprocess.run(
                         [str(tp.TRANSLATE_BIN), "--status", src, tgt],
@@ -417,7 +476,14 @@ class Handler(BaseHTTPRequestHandler):
                 fmt, ext = FORMAT_MAP[key]
                 if pdf:
                     fmt, ext = dict(fmt, pdf=True), ".pdf"
-                path = choose_save_path(f"{src.stem}_{tp.TARGET_LANG}{ext}")
+                path = body.get("path")   # frontend-provided (no-dialog OS)
+                if not path:
+                    if not dialog_available():
+                        self._send(200, {"no_dialog": True, "ext": ext,
+                                         "suggested": f"{src.stem}_"
+                                         f"{tp.TARGET_LANG}{ext}"})
+                        return
+                    path = choose_save_path(f"{src.stem}_{tp.TARGET_LANG}{ext}")
                 if not path:
                     self._send(200, {"cancelled": True})
                     return
@@ -439,7 +505,12 @@ class Handler(BaseHTTPRequestHandler):
                 fmt, ext = FORMAT_MAP[key]
                 if pdf:
                     fmt, ext = dict(fmt, pdf=True), ".pdf"
-                folder = choose_path("folder")
+                folder = body.get("folder")   # frontend-provided (no-dialog)
+                if not folder:
+                    if not dialog_available():
+                        self._send(200, {"no_dialog": True})
+                        return
+                    folder = choose_path("folder")
                 if not folder:
                     self._send(200, {"cancelled": True})
                     return
@@ -464,6 +535,9 @@ class Handler(BaseHTTPRequestHandler):
     def api_open(self, body):
         path = body.get("path")
         if not path:
+            if not dialog_available():
+                self._send(200, {"no_dialog": True})
+                return
             path = choose_path(body.get("kind", "file"))
             if not path:
                 self._send(200, {"cancelled": True})

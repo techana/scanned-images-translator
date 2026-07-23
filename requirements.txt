@@ -1,0 +1,11 @@
+# Core (all platforms)
+pillow           # image IO + rendering; wheels include JPEG2000/.jp2
+numpy            # ordered-dither for optimized PNG output
+
+# PDF export (searchable text layer)
+pymupdf
+reportlab
+
+# Tesseract OCR backend (required on Linux/Windows and older macOS;
+# also install the tesseract binary + language data — see the README)
+pytesseract

@@ -9,7 +9,8 @@ keeping the tables, diagrams, icons and logos exactly where they were.
 Then you fine-tune the result in a visual editor.
 
 Think of it as Google Translate's camera mode, but full-resolution,
-editable, scriptable, and able to run 100% offline on your Mac.
+editable, scriptable, and able to run fully offline. Works on macOS,
+Linux and Windows.
 
 ![Images Translator editing a scanned manual page](docs/screenshot.png)
 
@@ -50,28 +51,43 @@ Example 2:
 
 ## Installation
 
-Requires macOS 15 or newer and the Xcode Command Line Tools
-(`xcode-select --install` if you don't have them).
+Runs on **macOS, Linux and Windows**. You need Python 3 and, for OCR,
+either macOS Vision (macOS 15+) or Tesseract (everywhere else).
 
 ```bash
 git clone https://github.com/techana/scanned-images-translator.git
 cd scanned-images-translator
-
-# Python dependencies
-pip3 install pillow numpy pymupdf reportlab
-
-# optional: Tesseract OCR (only if you won't use macOS Vision)
-#   brew install tesseract tesseract-lang   # macOS
-#   pip3 install pytesseract
-
-# build the two small Swift helpers (one time)
-swiftc -O -o ocr ocr.swift
-swiftc -O -o translate translate.swift
+pip3 install -r requirements.txt
 ```
 
-That's it. For offline translation, macOS will offer to download the
-language pack for your language pair on first use (one time, then it
-works without internet).
+Then set up OCR for your platform:
+
+**macOS 15+** — the built-in Vision engine is the default; just build the
+two small Swift helpers once (needs Xcode CLT — `xcode-select --install`):
+
+```bash
+swiftc -O -o ocr ocr.swift          # Vision OCR
+swiftc -O -o translate translate.swift   # Apple offline translation
+```
+
+Offline translation then downloads its language pack on first use.
+
+**Linux** — install Tesseract, its language data, and fonts:
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-jpn tesseract-ocr-ara \
+                 fonts-dejavu fonts-noto zenity
+# (swap in the tesseract-ocr-<lang> packages for your source languages)
+```
+
+**Windows** — install [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
+(the UB-Mannheim build; tick the language data you need during setup) and
+make sure `tesseract.exe` is on your PATH. Fonts and file dialogs are
+already present.
+
+On Linux/Windows the app defaults to Tesseract for OCR and Google for
+translation (Apple's offline translator is macOS-only). Pick the OCR
+engine, languages and translator any time in **Files ▾ → Settings…**
 
 ## Using it
 
