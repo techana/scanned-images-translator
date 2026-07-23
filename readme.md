@@ -13,6 +13,9 @@ editable, scriptable, and able to run 100% offline on your Mac.
 
 ![Images Translator editing a scanned manual page](docs/screenshot.png)
 
+*A Japanese manual, automatically translated to English — layout, tables
+and artwork untouched.*
+
 ## What it can do
 
 - **Read 30+ languages** using the macOS Vision OCR engine.
