@@ -895,7 +895,10 @@ async function loadPage(i) {
   $('next').disabled = i === total - 1;
   const img = $('pageimg');
   img.onload = () => { layout(); buildOverlay(); setStatus(''); };
-  img.src = '/img/' + i;
+  // cache-bust by filename: /img/<i> is the same URL across documents, so
+  // without this the browser keeps showing the previous page's image
+  // behind the new overlay
+  img.src = '/img/' + i + '?n=' + encodeURIComponent(p.name);
   $('empty').style.display = 'none';
   $('canvas').style.display = 'block';
 }

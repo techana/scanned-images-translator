@@ -233,6 +233,10 @@ def run_ocr_tesseract(png_path):
     import pytesseract
 
     lang = to_tess_code(OCR_LANG)
+    # always pair with English: manuals mix in Latin words/part numbers,
+    # and eng improves layout even for the primary script
+    if "eng" not in lang.split("+"):
+        lang = lang + "+eng"
     data = pytesseract.image_to_data(
         Image.open(png_path), lang=lang,
         output_type=pytesseract.Output.DICT)
@@ -652,12 +656,37 @@ def gui_edited(blk):
     return "gui_bbox" in blk or "font_px" in blk or "line_spacing" in blk
 
 
+def default_font_px(blk, med_h):
+    """Initial font size for a block: the LARGEST size — never bigger than
+    the original line height allows — at which the wrapped translation
+    still fits within the original text area's height.  This keeps the
+    text covering the source area only, instead of overflowing it (the
+    old `med_h * 0.88` ignored how much text there was, so long
+    translations rendered far too large)."""
+    x0, y0, x1, y1 = blk.get("gui_bbox") or blk["bbox"]
+    w, h = x1 - x0, y1 - y0
+    cap = max(MIN_FONT, int(med_h * 0.88))
+    text = (blk.get("en") or "").strip()
+    if not text or w <= 0 or h <= 0:
+        return cap
+    draw = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    lo, hi, best = MIN_FONT, cap, MIN_FONT
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        lines = wrap_text(draw, text, load_font(mid), w)
+        if len(lines) * mid * LINE_SPACING <= h * 1.05:
+            best, lo = mid, mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
 def render_gui_block(draw, blk, med_h):
     """Render a block the way the GUI shows it: text wrapped into the
     (possibly user-resized) rectangle at the chosen font size, spacing and
     colors, on a backing that follows the text extent."""
     x0, y0, x1, y1 = blk.get("gui_bbox") or blk["bbox"]
-    size = int(blk.get("font_px") or max(MIN_FONT, med_h * 0.88))
+    size = int(blk.get("font_px") or default_font_px(blk, med_h))
     ls = float(blk.get("line_spacing") or 1.0)
     font = load_font(size)
     lines = wrap_text(draw, blk["en"], font, x1 - x0)
@@ -916,7 +945,7 @@ def save_pdf(img, path, fmt, blocks):
                  for sg in ln.get("segs", [ln])]
         med_h = (sorted(sg["h"] for sg in slots)[len(slots) // 2]
                  if slots else MIN_FONT)
-        size = int(blk.get("font_px") or max(MIN_FONT, med_h * 0.88))
+        size = int(blk.get("font_px") or default_font_px(blk, med_h))
         ls = float(blk.get("line_spacing") or 1.0)
         font = load_font(size)
         lines = wrap_text(draw, blk["en"], font, x1 - x0)
