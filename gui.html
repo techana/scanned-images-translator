@@ -124,6 +124,7 @@
     <div id="openmenu">
       <div data-kind="file">Open an image…</div>
       <div data-kind="folder">Load a folder…</div>
+      <div id="refreshpage">Refresh current page</div>
       <hr>
       <div id="savecur">Save current page <span class="kbd">⌘S</span></div>
       <div id="savecuras">Save current as…</div>
@@ -306,6 +307,31 @@ openMenu.querySelectorAll('div[data-kind]').forEach(item => item.onclick = async
 $('savecur').onclick = () => { openMenu.classList.remove('show'); savePage(); };
 $('savecuras').onclick = () => { openMenu.classList.remove('show'); savePageAs(); };
 $('saveall').onclick = () => { openMenu.classList.remove('show'); saveAll(); };
+$('refreshpage').onclick = () => { openMenu.classList.remove('show'); refreshPage(); };
+
+// Re-process the current page from scratch — re-OCR + re-translate,
+// discarding the cache AND any manual edits, as on first load.
+async function refreshPage() {
+  if (cur < 0) return;
+  if (!confirm('Re-process this page from scratch?\nOCR and translation '
+             + 'will re-run and any manual edits to this page are discarded.'))
+    return;
+  const ae = document.activeElement;
+  if (ae && ae.isContentEditable) ae.blur();
+  clearTimeout(saveTimer);
+  savePending = false;             // drop pending edits — refresh starts over
+  setStatus('Re-processing page from scratch…');
+  try {
+    const r = await fetch('/api/page/' + cur + '/refresh', {method: 'POST'})
+        .then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    savePending = false;           // blur above may have re-armed a save
+    await loadPage(cur);           // re-fetch the freshly rebuilt page
+    setStatus('Page refreshed');
+    setTimeout(() => { if ($('status').textContent === 'Page refreshed')
+                         setStatus(''); }, 1500);
+  } catch (e) { setStatus('Refresh failed: ' + e.message, true); }
+}
 
 async function savePageAs() {
   if (cur < 0) return;

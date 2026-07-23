@@ -392,6 +392,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"id": add_block(int(parts[2]),
                                                  self._json_body())})
             elif (parts[:2] == ["api", "page"] and len(parts) == 4
+                    and parts[3] == "refresh"):
+                # re-process from scratch: discard cache + edits, re-run
+                # OCR and translation as on first load
+                src = STATE["files"][int(parts[2])]
+                with LOCK:
+                    tp.prepare_page(src, out_dir_for(src), force=True)
+                self._send(200, {"ok": True})
+            elif (parts[:2] == ["api", "page"] and len(parts) == 4
                     and parts[3] == "render"):
                 out = render_png(int(parts[2]))
                 if out is None:      # first save: frontend runs the dialog
