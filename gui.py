@@ -65,6 +65,14 @@ LOCK = threading.Lock()              # serializes OCR/translate + cache writes
 
 _lang_lists = None                   # cached (ocr_langs, translate_langs)
 
+# Source-language choices when Vision can't be queried (non-macOS). ocr_lang
+# is always BCP-47; Tesseract maps it via tp.tess_lang.
+STATIC_OCR_LANGS = [
+    "en-US", "ja-JP", "ar-SA", "zh-Hans", "zh-Hant", "ko-KR", "fr-FR",
+    "de-DE", "es-ES", "it-IT", "pt-BR", "ru-RU", "uk-UA", "th-TH",
+    "vi-VT", "tr-TR", "id-ID", "cs-CZ", "da-DK", "nl-NL", "no-NO",
+    "pl-PL", "ro-RO", "sv-SE", "hi-IN", "el-GR", "hu-HU", "fi-FI"]
+
 
 def lang_lists():
     global _lang_lists
@@ -74,7 +82,7 @@ def lang_lists():
                 [str(tp.OCR_BIN), "--list-langs"],
                 capture_output=True, text=True, timeout=30).stdout)
         except Exception:
-            ocr = ["ja-JP", "en-US"]
+            ocr = STATIC_OCR_LANGS      # no Vision (older macOS / Linux)
         try:
             tr = json.loads(subprocess.run(
                 [str(tp.TRANSLATE_BIN), "--list-langs"],
@@ -88,15 +96,20 @@ def lang_lists():
 
 def load_settings():
     try:
-        return json.loads(SETTINGS_FILE.read_text())
+        s = json.loads(SETTINGS_FILE.read_text())
     except Exception:
-        return {"ocr_lang": "ja-JP", "target": "en", "engine": "auto",
-                "ocr": True}
+        s = {"ocr_lang": "ja-JP", "target": "en", "engine": "auto"}
+    # migrate the old boolean `ocr` flag; default engine is platform-aware
+    if "ocr_engine" not in s:
+        s["ocr_engine"] = (tp.default_ocr_engine() if s.get("ocr", True)
+                           else "disabled")
+    s.pop("ocr", None)
+    return s
 
 
 def apply_settings(s):
     tp.set_langs(s.get("ocr_lang"), s.get("target"), s.get("engine"),
-                 ocr=s.get("ocr", True))
+                 ocr_engine=s.get("ocr_engine") or tp.default_ocr_engine())
 
 
 # ------------------------------------------------------------- helpers
@@ -292,6 +305,15 @@ class Handler(BaseHTTPRequestHandler):
                 ocr_langs, tr_langs = lang_lists()
                 s.update(ocr_langs=ocr_langs, translate_langs=tr_langs)
                 self._send(200, s)
+            elif parts[:2] == ["api", "tessstatus"]:
+                # is the source language's Tesseract model installed?
+                lang = unquote(parse_qs(url.query).get("lang", [""])[0])
+                code = tp.tess_lang(lang)
+                installed = tp.tesseract_installed_langs()
+                self._send(200, {
+                    "code": code,
+                    "ok": bool(installed) and code in installed,
+                    "available": bool(installed)})
             elif parts[:2] == ["api", "applestatus"]:
                 qs = parse_qs(url.query)
                 src = qs.get("source", [""])[0]
@@ -327,8 +349,26 @@ class Handler(BaseHTTPRequestHandler):
                 s = load_settings()
                 s.update({k: body[k] for k in ("ocr_lang", "target", "engine")
                           if body.get(k)})
-                if "ocr" in body:
-                    s["ocr"] = bool(body["ocr"])
+                if body.get("ocr_engine"):
+                    s["ocr_engine"] = body["ocr_engine"]
+                # Tesseract needs the source language's traineddata; block
+                # the save with a helpful message if it's missing.
+                if s.get("ocr_engine") == "tesseract":
+                    code = tp.tess_lang(s.get("ocr_lang") or "en")
+                    installed = tp.tesseract_installed_langs()
+                    if not installed:
+                        self._send(200, {"error":
+                            "Tesseract is not installed or not on PATH. "
+                            "Install it (macOS: brew install tesseract)."})
+                        return
+                    if code not in installed:
+                        self._send(200, {"error":
+                            f"Tesseract has no language model \"{code}\" for "
+                            f"the source language. Install it — macOS: "
+                            f"brew install tesseract-lang; Linux: "
+                            f"apt install tesseract-ocr-{code}; or download "
+                            f"{code}.traineddata into your tessdata folder."})
+                        return
                 SETTINGS_FILE.write_text(json.dumps(s, indent=1))
                 apply_settings(s)
                 self._send(200, {"ok": True})
@@ -447,9 +487,10 @@ def main():
         STATE["out"] = Path(args.out)
     for p in args.inputs:
         STATE["files"] += collect(p)
-    if not tp.OCR_BIN.exists():
+    if tp.OCR_ENGINE == "vision" and not tp.OCR_BIN.exists():
         sys.exit(f"OCR helper missing — build it first:\n"
-                 f"  cd '{tp.TOOLS_DIR}' && swiftc -O -o ocr ocr.swift")
+                 f"  cd '{tp.TOOLS_DIR}' && swiftc -O -o ocr ocr.swift\n"
+                 f"(or choose Tesseract / Disable in Settings)")
 
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}/"

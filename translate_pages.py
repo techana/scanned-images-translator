@@ -50,11 +50,12 @@ TRANSLATE_BIN = TOOLS_DIR / "translate"   # Apple Translation helper (macOS 15+)
 
 # Language / engine settings (see set_langs; gui.py drives these from its
 # Settings dialog, the CLI from --source/--target/--engine).
-OCR_LANG = "ja-JP"        # Vision recognition language (./ocr --list-langs)
+OCR_LANG = "ja-JP"        # source language, BCP-47 (always — even for
+                          # Tesseract, which maps it via BCP47_TO_TESS)
 SOURCE_LANG = "ja"        # translation source (derived from OCR_LANG)
 TARGET_LANG = "en"        # translation target (./translate --list-langs)
-ENGINE = "auto"           # auto = Apple first, then Google API, then gtx
-OCR_ENABLED = True        # off: new pages open blank (manual boxes only)
+ENGINE = "auto"           # translation: auto = Apple, then Google, then gtx
+OCR_ENGINE = "vision"     # "vision" (macOS Vision) | "tesseract" | "disabled"
 
 
 RTL_LANGS = {"ar", "he", "fa", "ur"}
@@ -64,16 +65,29 @@ def is_rtl():
     return TARGET_LANG in RTL_LANGS
 
 
-def set_langs(ocr_lang=None, target=None, engine=None, ocr=None):
-    global OCR_LANG, SOURCE_LANG, TARGET_LANG, ENGINE, OCR_ENABLED
+def default_ocr_engine():
+    """Vision on macOS 15+, Tesseract everywhere else (older macOS,
+    Linux, Windows)."""
+    import platform
+    if platform.system() == "Darwin":
+        try:
+            if int(platform.mac_ver()[0].split(".")[0]) >= 15:
+                return "vision"
+        except (ValueError, IndexError):
+            pass
+    return "tesseract"
+
+
+def set_langs(ocr_lang=None, target=None, engine=None, ocr_engine=None):
+    global OCR_LANG, SOURCE_LANG, TARGET_LANG, ENGINE, OCR_ENGINE
     if ocr_lang:
         OCR_LANG, SOURCE_LANG = ocr_lang, ocr_lang.split("-")[0]
     if target:
         TARGET_LANG = target
     if engine:
         ENGINE = engine
-    if ocr is not None:
-        OCR_ENABLED = bool(ocr)
+    if ocr_engine:
+        OCR_ENGINE = ocr_engine
 
 IMAGE_EXTS = {".jp2", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
@@ -135,6 +149,85 @@ def run_ocr(png_path):
     lines, keepouts = [], []
     for raw in json.loads(out.stdout):
         ln = process_line(raw, keepouts)
+        if ln:
+            lines.append(ln)
+    return lines, keepouts
+
+
+# ------------------------------------------- Tesseract OCR (cross-platform)
+#
+# Deliberately separate from the Vision path above: this shells out to the
+# `tesseract` binary via pytesseract and emits line dicts WITHOUT per-char
+# boxes, so process_line wraps each as a single segment and every
+# downstream stage (grouping, translation, rendering) is reused unchanged.
+# Vision's icon-protection heuristics never run here (they are tuned to
+# Vision's Japanese misreads); nothing in run_ocr is touched.
+
+# BCP-47 primary subtag -> Tesseract traineddata code (zh keyed by script).
+BCP47_TO_TESS = {
+    "en": "eng", "ja": "jpn", "ar": "ara", "fr": "fra", "de": "deu",
+    "es": "spa", "it": "ita", "pt": "por", "ko": "kor", "ru": "rus",
+    "uk": "ukr", "th": "tha", "vi": "vie", "tr": "tur", "id": "ind",
+    "cs": "ces", "da": "dan", "nl": "nld", "no": "nor", "nb": "nor",
+    "nn": "nor", "ms": "msa", "pl": "pol", "ro": "ron", "sv": "swe",
+    "hi": "hin", "he": "heb", "fa": "fas", "ur": "urd", "el": "ell",
+    "bg": "bul", "hu": "hun", "fi": "fin", "sk": "slk", "hr": "hrv",
+    "sr": "srp", "sl": "slv", "lt": "lit", "lv": "lav", "et": "est",
+    "zh-Hans": "chi_sim", "zh-Hant": "chi_tra",
+    "yue-Hans": "chi_sim", "yue-Hant": "chi_tra",
+}
+
+
+def tess_lang(bcp47):
+    """BCP-47 language tag -> Tesseract traineddata code."""
+    if bcp47 in BCP47_TO_TESS:
+        return BCP47_TO_TESS[bcp47]
+    base = bcp47.split("-")[0]
+    return BCP47_TO_TESS.get(base, base[:3])
+
+
+def tesseract_installed_langs():
+    """Traineddata codes available to the local `tesseract` binary."""
+    try:
+        out = subprocess.run(["tesseract", "--list-langs"],
+                             capture_output=True, text=True, timeout=30)
+        return [l.strip() for l in out.stdout.splitlines()[1:] if l.strip()]
+    except Exception:
+        return []
+
+
+def run_ocr_tesseract(png_path):
+    """Returns (lines, keepouts) like run_ocr, using Tesseract.  Words are
+    grouped into their source text lines; no per-char boxes are emitted."""
+    import pytesseract
+
+    lang = tess_lang(OCR_LANG)
+    data = pytesseract.image_to_data(
+        Image.open(png_path), lang=lang,
+        output_type=pytesseract.Output.DICT)
+
+    groups = {}
+    for i in range(len(data["text"])):
+        txt = data["text"][i].strip()
+        try:
+            conf = float(data["conf"][i])
+        except (ValueError, TypeError):
+            conf = -1
+        if not txt or conf < 0:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        groups.setdefault(key, []).append(i)
+
+    lines, keepouts = [], []
+    for idxs in groups.values():
+        x0 = min(data["left"][i] for i in idxs)
+        y0 = min(data["top"][i] for i in idxs)
+        x1 = max(data["left"][i] + data["width"][i] for i in idxs)
+        y1 = max(data["top"][i] + data["height"][i] for i in idxs)
+        text = " ".join(data["text"][i].strip() for i in idxs
+                        if data["text"][i].strip())
+        raw = {"text": text, "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+        ln = process_line(raw, keepouts)   # no chars -> single-seg line
         if ln:
             lines.append(ln)
     return lines, keepouts
@@ -623,21 +716,33 @@ def prepare_page(src, out_dir, force=False):
 
     set_scale(Image.open(page_png).size[0])
 
+    want = [OCR_LANG, TARGET_LANG, OCR_ENGINE]
     if cache.exists() and not force:
         data = json.loads(cache.read_text())
-        stamp = data.get("langs", ["ja-JP", "en"])
+        # Normalize legacy stamps: 2-element ones predate the engine field
+        # (they were Vision); "no-ocr" is the old "disabled".
+        stamp = list(data.get("langs", ["ja-JP", "en"]))
+        if len(stamp) == 2:
+            stamp.append("vision")
+        elif stamp[2] == "no-ocr":
+            stamp = [stamp[0], stamp[1], "disabled"]
         # With OCR disabled any existing cache is used as-is (edits are
-        # never discarded by flipping the switch).  With OCR enabled, a
-        # language change or a blank no-OCR cache redoes the page (edits
-        # included — they belong to the old content); legacy caches were
-        # ja-JP -> en.
-        if not OCR_ENABLED or stamp == [OCR_LANG, TARGET_LANG]:
+        # never discarded by flipping the engine to Disable).  Otherwise a
+        # language OR engine change redoes the page (its content belongs
+        # to the old settings).
+        if OCR_ENGINE == "disabled" or stamp == want:
             return page_png, data["blocks"], data["keepouts"]
         log(f"  settings changed — redoing page")
 
-    if OCR_ENABLED:
-        log("  OCR...")
-        ocr_lines, keepouts = run_ocr(page_png)
+    if OCR_ENGINE == "disabled":
+        log("  OCR disabled — blank page (manual text boxes only)")
+        blocks, keepouts = [], []
+    else:
+        log(f"  OCR ({OCR_ENGINE})...")
+        if OCR_ENGINE == "tesseract":
+            ocr_lines, keepouts = run_ocr_tesseract(page_png)
+        else:
+            ocr_lines, keepouts = run_ocr(page_png)
         blocks = []
         for blk in group_blocks(ocr_lines):
             blocks.append({"lines": blk, "bbox": block_bbox(blk),
@@ -647,13 +752,8 @@ def prepare_page(src, out_dir, force=False):
         if todo:
             for b, en in zip(todo, translate_batch([b["text"] for b in todo])):
                 b["en"] = en
-        stamp = [OCR_LANG, TARGET_LANG]
-    else:
-        log("  OCR disabled — blank page (manual text boxes only)")
-        blocks, keepouts = [], []
-        stamp = [OCR_LANG, TARGET_LANG, "no-ocr"]
     cache.write_text(json.dumps({"blocks": blocks, "keepouts": keepouts,
-                                 "langs": stamp},
+                                 "langs": want},
                                 ensure_ascii=False, indent=1))
     return page_png, blocks, keepouts
 
@@ -871,9 +971,13 @@ def main():
     ap.add_argument("--engine", choices=["auto", "apple", "google"],
                     help="translation backend (default auto: Apple offline "
                          "first, then Google)")
+    ap.add_argument("--ocr", choices=["vision", "tesseract", "disabled"],
+                    help="OCR engine (default: Vision on macOS 15+, else "
+                         "Tesseract)")
     args = ap.parse_args()
 
-    set_langs(args.source, args.target, args.engine)
+    set_langs(args.source, args.target, args.engine,
+              ocr_engine=args.ocr or default_ocr_engine())
     if args.project:
         GCP_PROJECT = args.project
     if args.fixes:

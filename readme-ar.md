@@ -23,7 +23,8 @@
 
 ## ماذا يستطيع أن يفعل
 
-- **قراءة أكثر من ٣٠ لغة** عبر محرك Vision للتعرف الضوئي في macOS.
+- **قراءة أكثر من ٣٠ لغة** عبر محرك Vision في macOS، أو عبر **Tesseract**
+  (يعمل أيضًا على إصدارات macOS الأقدم وعلى Linux وWindows — يُختار من الإعدادات).
 - **الترجمة دون اتصال** بمترجم Apple المدمج (macOS 15+)، أو عبر
   Google Cloud Translation — بما في ذلك اللغات اليمينية مثل العربية،
   بتشكيل ومحاذاة صحيحين.
@@ -62,6 +63,10 @@ cd scanned-images-translator
 
 # اعتماديات بايثون
 pip3 install pillow numpy pymupdf reportlab
+
+# اختياري: محرك Tesseract (فقط إن لم تستخدم Vision في macOS)
+#   brew install tesseract tesseract-lang   # macOS
+#   pip3 install pytesseract
 
 # بناء المساعدَين الصغيرين بلغة Swift (مرة واحدة)
 swiftc -O -o ocr ocr.swift

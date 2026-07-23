@@ -18,7 +18,8 @@ and artwork untouched.*
 
 ## What it can do
 
-- **Read 30+ languages** using the macOS Vision OCR engine.
+- **Read 30+ languages** with the macOS Vision OCR engine, or **Tesseract**
+  (works on older macOS, Linux and Windows too — pick it in Settings).
 - **Translate offline** with Apple's built-in translator (macOS 15+), or
   through Google Cloud Translation — including right-to-left targets like
   Arabic, with correct shaping and alignment.
@@ -58,6 +59,10 @@ cd scanned-images-translator
 
 # Python dependencies
 pip3 install pillow numpy pymupdf reportlab
+
+# optional: Tesseract OCR (only if you won't use macOS Vision)
+#   brew install tesseract tesseract-lang   # macOS
+#   pip3 install pytesseract
 
 # build the two small Swift helpers (one time)
 swiftc -O -o ocr ocr.swift

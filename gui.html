@@ -211,7 +211,7 @@
   <div class="modal">
     <h2>Images Translator</h2>
     <div class="note">
-      Version 1.0<br><br>
+      Version 2.0<br><br>
       Translate scanned document pages in place — OCR, translate,
       re-render, edit.<br><br>
       <a href="https://github.com/techana/scanned-images-translator"
@@ -227,10 +227,13 @@
 <div id="modalbg" class="modalbg">
   <div id="settingsmodal" class="modal">
     <h2>Settings</h2>
-    <label style="display:flex; align-items:center; gap:8px; margin-top:4px">
-      <input type="checkbox" id="sett-ocr" checked>
-      Run OCR &amp; translation on new pages
-    </label>
+    <label for="sett-ocr">OCR engine</label>
+    <select id="sett-ocr">
+      <option value="vision">macOS Vision</option>
+      <option value="tesseract">Tesseract</option>
+      <option value="disabled">Disable (blank pages, manual boxes only)</option>
+    </select>
+    <div class="note" id="tessstatus"></div>
     <label for="sett-source">Source language (OCR)</label>
     <select id="sett-source"></select>
     <label for="sett-target">Target language</label>
@@ -357,6 +360,30 @@ async function refreshAppleStatus() {
 $('sett-source').addEventListener('change', refreshAppleStatus);
 $('sett-target').addEventListener('change', refreshAppleStatus);
 
+// live Tesseract language-model check (shown only when Tesseract is chosen)
+async function refreshTessStatus() {
+  const note = $('tessstatus');
+  if ($('sett-ocr').value !== 'tesseract') { note.textContent = ''; return; }
+  const lang = $('sett-source').value;
+  note.textContent = 'Checking Tesseract language model…';
+  try {
+    const r = await fetch('/api/tessstatus?lang=' + encodeURIComponent(lang))
+        .then(r => r.json());
+    if (!r.available) {
+      note.innerHTML = '⚠️ Tesseract is not installed or not on PATH.';
+    } else if (r.ok) {
+      note.textContent = `Tesseract model "${r.code}" installed ✓`;
+    } else {
+      note.innerHTML = `⚠️ Tesseract has no model <b>${r.code}</b> for this `
+        + `source language. Install it (macOS: <code>brew install `
+        + `tesseract-lang</code>, Linux: <code>apt install `
+        + `tesseract-ocr-${r.code}</code>) then re-check.`;
+    }
+  } catch (e) { note.textContent = ''; }
+}
+$('sett-ocr').addEventListener('change', refreshTessStatus);
+$('sett-source').addEventListener('change', refreshTessStatus);
+
 $('sett-download').onclick = async () => {
   const src = $('sett-source').value.split('-')[0];
   const tgt = $('sett-target').value;
@@ -376,9 +403,10 @@ $('settingsitem').onclick = async () => {
     fillLangSelect($('sett-source'), s.ocr_langs, s.ocr_lang);
     fillLangSelect($('sett-target'), s.translate_langs, s.target);
     $('sett-engine').value = s.engine || 'auto';
-    $('sett-ocr').checked = s.ocr !== false;
+    $('sett-ocr').value = s.ocr_engine || 'vision';
     $('modalbg').classList.add('show');
     refreshAppleStatus();
+    refreshTessStatus();
   } catch (e) { setStatus('Settings failed: ' + e.message, true); }
 };
 
@@ -391,12 +419,15 @@ $('sett-save').onclick = async () => {
   const body = {ocr_lang: $('sett-source').value,
                 target: $('sett-target').value,
                 engine: $('sett-engine').value,
-                ocr: $('sett-ocr').checked};
+                ocr_engine: $('sett-ocr').value};
   try {
     const r = await fetch('/api/settings', {method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body)}).then(r => r.json());
-    if (r.error) throw new Error(r.error);
+    if (r.error) {                 // e.g. missing Tesseract model — keep open
+      $('tessstatus').innerHTML = '⚠️ ' + r.error;
+      return;
+    }
     $('modalbg').classList.remove('show');
     setStatus('Settings saved');
     setTimeout(() => setStatus(''), 1500);
