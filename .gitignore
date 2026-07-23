@@ -13,6 +13,7 @@ gui-settings.json
 .cache/
 *.png
 *.jp2
+!docs/screenshot.png
 
 # internal dev notes (contain local paths / account details)
 HANDOVER.md
