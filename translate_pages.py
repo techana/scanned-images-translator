@@ -78,16 +78,26 @@ def default_ocr_engine():
     return "tesseract"
 
 
+def _source_lang(ocr_lang, ocr_engine):
+    """2-letter translation-source code from the OCR source language, whose
+    format depends on the engine: BCP-47 (`ja-JP`) for Vision, a Tesseract
+    traineddata code (`jpn`) for Tesseract."""
+    if ocr_engine == "tesseract" and "-" not in ocr_lang:
+        return TESS_TO_ISO.get(ocr_lang, ocr_lang[:2])
+    return ocr_lang.split("-")[0]
+
+
 def set_langs(ocr_lang=None, target=None, engine=None, ocr_engine=None):
     global OCR_LANG, SOURCE_LANG, TARGET_LANG, ENGINE, OCR_ENGINE
+    if ocr_engine:
+        OCR_ENGINE = ocr_engine
     if ocr_lang:
-        OCR_LANG, SOURCE_LANG = ocr_lang, ocr_lang.split("-")[0]
+        OCR_LANG = ocr_lang
+        SOURCE_LANG = _source_lang(ocr_lang, OCR_ENGINE)
     if target:
         TARGET_LANG = target
     if engine:
         ENGINE = engine
-    if ocr_engine:
-        OCR_ENGINE = ocr_engine
 
 IMAGE_EXTS = {".jp2", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
@@ -178,12 +188,33 @@ BCP47_TO_TESS = {
 }
 
 
+# Tesseract traineddata code -> ISO 639-1 (for the translation source).
+TESS_TO_ISO = {
+    "eng": "en", "jpn": "ja", "ara": "ar", "fra": "fr", "deu": "de",
+    "spa": "es", "ita": "it", "por": "pt", "kor": "ko", "rus": "ru",
+    "ukr": "uk", "tha": "th", "vie": "vi", "tur": "tr", "ind": "id",
+    "ces": "cs", "dan": "da", "nld": "nl", "nor": "no", "msa": "ms",
+    "pol": "pl", "ron": "ro", "swe": "sv", "hin": "hi", "heb": "he",
+    "fas": "fa", "urd": "ur", "ell": "el", "bul": "bg", "hun": "hu",
+    "fin": "fi", "slk": "sk", "hrv": "hr", "srp": "sr", "slv": "sl",
+    "lit": "lt", "lav": "lv", "est": "et", "chi_sim": "zh",
+    "chi_tra": "zh",
+}
+
+
 def tess_lang(bcp47):
     """BCP-47 language tag -> Tesseract traineddata code."""
     if bcp47 in BCP47_TO_TESS:
         return BCP47_TO_TESS[bcp47]
     base = bcp47.split("-")[0]
     return BCP47_TO_TESS.get(base, base[:3])
+
+
+def to_tess_code(lang):
+    """Accept either a Tesseract code (jpn) or a BCP-47 tag (ja-JP) and
+    return the Tesseract code — the source dropdown now offers installed
+    Tesseract codes directly, but stale BCP-47 values are handled too."""
+    return tess_lang(lang) if "-" in lang else lang
 
 
 def tesseract_installed_langs():
@@ -201,7 +232,7 @@ def run_ocr_tesseract(png_path):
     grouped into their source text lines; no per-char boxes are emitted."""
     import pytesseract
 
-    lang = tess_lang(OCR_LANG)
+    lang = to_tess_code(OCR_LANG)
     data = pytesseract.image_to_data(
         Image.open(png_path), lang=lang,
         output_type=pytesseract.Output.DICT)

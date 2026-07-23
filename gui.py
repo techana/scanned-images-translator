@@ -63,7 +63,7 @@ FORMAT_MAP = {
 }
 LOCK = threading.Lock()              # serializes OCR/translate + cache writes
 
-_lang_lists = None                   # cached (ocr_langs, translate_langs)
+_lang_lists = None       # cached (vision_langs, tess_langs, translate_langs)
 
 # Source-language choices when Vision can't be queried (non-macOS). ocr_lang
 # is always BCP-47; Tesseract maps it via tp.tess_lang.
@@ -75,14 +75,19 @@ STATIC_OCR_LANGS = [
 
 
 def lang_lists():
+    """(vision_langs, tesseract_langs, translate_langs).  Vision langs are
+    BCP-47 strings; Tesseract langs are the models installed on this
+    machine as {code, iso} objects (iso drives the display name)."""
     global _lang_lists
     if _lang_lists is None:
         try:
-            ocr = json.loads(subprocess.run(
+            vision = json.loads(subprocess.run(
                 [str(tp.OCR_BIN), "--list-langs"],
                 capture_output=True, text=True, timeout=30).stdout)
         except Exception:
-            ocr = STATIC_OCR_LANGS      # no Vision (older macOS / Linux)
+            vision = STATIC_OCR_LANGS   # no Vision (older macOS / Linux)
+        tess = [{"code": c, "iso": tp.TESS_TO_ISO.get(c)}
+                for c in tp.tesseract_installed_langs()]
         try:
             tr = json.loads(subprocess.run(
                 [str(tp.TRANSLATE_BIN), "--list-langs"],
@@ -90,7 +95,7 @@ def lang_lists():
         except Exception:
             tr = ["en", "ar", "ja", "de", "es", "fr", "it", "ko", "pt",
                   "ru", "zh"]
-        _lang_lists = (ocr, tr)
+        _lang_lists = (vision, tess, tr)
     return _lang_lists
 
 
@@ -302,13 +307,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_open({"path": path})
             elif parts[:2] == ["api", "settings"]:
                 s = load_settings()
-                ocr_langs, tr_langs = lang_lists()
-                s.update(ocr_langs=ocr_langs, translate_langs=tr_langs)
+                vision_langs, tess_langs, tr_langs = lang_lists()
+                s.update(vision_langs=vision_langs, tesseract_langs=tess_langs,
+                         translate_langs=tr_langs)
                 self._send(200, s)
             elif parts[:2] == ["api", "tessstatus"]:
                 # is the source language's Tesseract model installed?
                 lang = unquote(parse_qs(url.query).get("lang", [""])[0])
-                code = tp.tess_lang(lang)
+                code = tp.to_tess_code(lang)
                 installed = tp.tesseract_installed_langs()
                 self._send(200, {
                     "code": code,
@@ -354,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Tesseract needs the source language's traineddata; block
                 # the save with a helpful message if it's missing.
                 if s.get("ocr_engine") == "tesseract":
-                    code = tp.tess_lang(s.get("ocr_lang") or "en")
+                    code = tp.to_tess_code(s.get("ocr_lang") or "eng")
                     installed = tp.tesseract_installed_langs()
                     if not installed:
                         self._send(200, {"error":
