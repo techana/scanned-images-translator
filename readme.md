@@ -97,11 +97,16 @@ engine, languages and translator any time in **Files ▾ → Settings…**
 python3 gui.py
 ```
 
-Your browser opens the app. **Files ▾ → Load a folder…**, pick your
-scans, and pages translate as you view them. Click any text box to
-adjust it; drag the *Translation* slider to peek at the original
-underneath. **⌘S** saves the page — the first save asks where and in
-which format, and remembers your answer.
+The app runs as a small local web server and opens automatically in your
+browser at **http://localhost:8877** — if it doesn't open, just paste
+that address into any browser. (Use `python3 gui.py --port 9000` if
+something else is already using port 8877.) Nothing is uploaded
+anywhere; the server only listens on your own machine.
+
+Then **Files ▾ → Load a folder…**, pick your scans, and pages translate
+as you view them. Click any text box to adjust it; drag the *Opacity*
+slider to peek at the original underneath. **⌘S** saves the page — the
+first save asks where and in which format, and remembers your answer.
 
 Languages and the translation engine live in **Files ▾ → Settings…**
 
