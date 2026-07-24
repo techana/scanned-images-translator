@@ -116,6 +116,13 @@ Output lands next to the inputs as `<page>_<language>.png`.
 
 ## Good to know
 
+- **A recent Mac gives the best results.** macOS Vision (the default on
+  macOS 15+) runs Apple's neural text-recognition models, trained on
+  real-world photos and scans, and it clearly outperforms Tesseract on
+  noisy halftone pages — especially Japanese. Tesseract is neural too
+  (LSTM, since v4) and is a solid portable fallback for Linux, Windows
+  and older macOS, but expect rougher OCR on grainy scans, which means
+  more fixing up by hand in the editor.
 - OCR and translation results are cached per page in `.cache/` — edits
   live there too, and re-rendering a full book takes seconds.
 - `./ocr --list-langs` and `./translate --list-langs` show every language
