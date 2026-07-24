@@ -245,7 +245,7 @@
   <div class="modal">
     <h2>Images Translator</h2>
     <div class="note">
-      Version 2.2<br><br>
+      Version 2.3<br><br>
       Translate scanned document pages in place — OCR, translate,
       re-render, edit.<br><br>
       <a href="https://github.com/techana/scanned-images-translator"
@@ -724,6 +724,19 @@ document.addEventListener('keydown', e => {
       && selected) {
     e.preventDefault();
     toggleBold();
+    return;
+  }
+  // ⌘C / ⌘V on the active text box or patch rectangle
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.keyCode === 67)
+      && (selected || selectedPatch)) {
+    e.preventDefault();
+    copySelection();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.keyCode === 86)
+      && clipboard) {
+    e.preventDefault();
+    pasteClipboard();
     return;
   }
   // ⌘P starts a patch rectangle (overrides the browser's print dialog)
@@ -1217,6 +1230,87 @@ document.addEventListener('mousedown', e => {
   applyPatchColor(selectedPatch, samplePixel(x, y));
 }, true);
 
+// ===================== copy / paste (⌘C, ⌘V) =====================
+// Works on whichever element is active: a text box or a patch rectangle.
+// The copy is a plain snapshot; pasting builds a brand-new element from
+// it (a real server-side block for text), so the two never alias.
+
+let clipboard = null;                 // {kind:'block'|'patch', data:{...}}
+let mousePage = null;                 // last pointer position in image px
+
+$('stage').addEventListener('mousemove', e => {
+  const r = $('stage').getBoundingClientRect();
+  mousePage = [Math.round((e.clientX - r.left) / scale),
+               Math.round((e.clientY - r.top) / scale)];
+});
+$('viewport').addEventListener('mouseleave', () => { mousePage = null; });
+
+function copySelection() {
+  if (selectedPatch) {
+    clipboard = {kind: 'patch', data: {bbox: [...selectedPatch.bbox],
+                                       color: selectedPatch.color}};
+  } else if (selected) {
+    clipboard = {kind: 'block', data: {
+        en: selected.en, bbox: [...selected.bbox], font_px: selected.font_px,
+        line_spacing: selected.line_spacing, bold: !!selected.bold,
+        color: selected.color, bg: selected.bg, align: selected.align}};
+  } else return false;
+  setStatus('Copied — ⌘V to paste');
+  setTimeout(() => { if ($('status').textContent === 'Copied — ⌘V to paste')
+                       setStatus(''); }, 1500);
+  return true;
+}
+
+// Where the pasted copy goes: under the pointer when it is over the page,
+// else offset from the original so it doesn't hide it.
+function pasteBox(bbox) {
+  const w = bbox[2] - bbox[0], h = bbox[3] - bbox[1];
+  let x = bbox[0] + 40, y = bbox[1] + 40;          // offset fallback
+  if (mousePage) { x = mousePage[0]; y = mousePage[1]; }
+  x = Math.max(0, Math.min(x, page.width - w));    // keep it on the page
+  y = Math.max(0, Math.min(y, page.height - h));
+  return [x, y, x + w, y + h];
+}
+
+async function pasteClipboard() {
+  if (!clipboard || !page) return;
+  const d = clipboard.data;
+  if (clipboard.kind === 'patch') {
+    const p = {bbox: pasteBox(d.bbox), color: d.color};
+    userPatches.push(p);
+    addPatchDom(p);
+    selectPatch(p);
+    pushUndo({type: 'patch-create', page: cur, bbox: [...p.bbox]});
+    savePatches();
+  } else {
+    try {
+      const res = await fetch('/api/page/' + cur + '/add', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({en: d.en, bbox: pasteBox(d.bbox),
+                                font_px: d.font_px})}).then(r => r.json());
+      if (res.error) throw new Error(res.error);
+      const blk = {id: res.id, en: d.en, bbox: pasteBox(d.bbox),
+                   font_px: d.font_px, line_spacing: d.line_spacing,
+                   bold: d.bold, color: d.color, bg: d.bg, align: d.align,
+                   patches: [], edited: true};
+      page.blocks.push(blk);
+      addBlockDom(blk);
+      // /add only stores text + bbox + font, and addBlockDom baselines
+      // _orig to the block's CURRENT values — so without this the styling
+      // would diff clean and never reach the cache.
+      blk._orig = {en: blk.en, bbox: JSON.stringify(blk.bbox),
+                   font: blk.font_px, ls: null, color: null, bg: null,
+                   align: null, bold: null};
+      pushUndo({type: 'create', page: cur, id: blk.id});
+      select(blk);
+      scheduleSave();          // persist the styling the /add call didn't take
+    } catch (e) { setStatus('Paste failed: ' + e.message, true); return; }
+  }
+  setStatus('Pasted');
+  setTimeout(() => { if ($('status').textContent === 'Pasted') setStatus(''); },
+             1200);
+}
+
 // ------------------------------------ undo stack (deletes + moves, ⌘Z)
 const undoStack = [];   // [{type:'delete'|'move', page, id, bbox?}, ...]
 let lastNudge = {id: null, t: 0};   // coalesces arrow-key move bursts
@@ -1247,6 +1341,19 @@ async function performUndo() {
       }
     }
     await saveDeleted(u.page, u.id, true);
+    return;
+  }
+  if (u.type === 'patch-create') {      // undo a pasted/drawn patch
+    if (u.page === cur) {
+      const p = userPatches.find(x =>
+          JSON.stringify(x.bbox) === JSON.stringify(u.bbox));
+      if (p) {
+        if (selectedPatch === p) deselectPatch();
+        p._div.remove();
+        userPatches = userPatches.filter(x => x !== p);
+        savePatches();
+      }
+    }
     return;
   }
   if (u.type === 'format') {            // restore the pre-paint look
