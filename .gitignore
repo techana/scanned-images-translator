@@ -10,7 +10,7 @@ CLAUDE.md
 gui-settings.json
 
 # per-page OCR/translation caches and outputs
-.cache/
+image_translator.cache/
 *.png
 *.jp2
 !docs/*.png

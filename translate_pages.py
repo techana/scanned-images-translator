@@ -847,23 +847,12 @@ def render_page(img, blocks, keepouts, user_patches=()):
 # ------------------------------------------------------------- pipeline
 
 def prepare_page(src, out_dir, force=False):
-    """Convert to PNG + OCR + translate, all cached; no rendering.
+    """Prepare the page image + OCR + translate, all cached; no rendering.
     Returns (page_png, blocks, keepouts).  Shared by the CLI pipeline
     and gui.py, which renders the blocks as an HTML overlay instead."""
-    stem = src.stem
     out_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir = out_dir / ".cache"
-    cache_dir.mkdir(exist_ok=True)
-    cache = cache_dir / f"{stem}.json"
-
-    # OCR needs a PNG; convert other formats once, kept beside the output.
-    if src.suffix.lower() == ".png":
-        page_png = src
-    else:
-        page_png = out_dir / f"{stem}_jp.png"
-        if not page_png.exists():
-            log(f"  converting {src.name}")
-            Image.open(src).save(page_png)
+    cache = cache_path(src, out_dir)
+    page_png = page_image(src, out_dir)
 
     set_scale(Image.open(page_png).size[0])
 
@@ -1085,8 +1074,50 @@ def save_pdf(img, path, fmt, blocks):
     doc.close()
 
 
+CACHE_DIRNAME = "image_translator.cache"
+# Browsers can't display JPEG-2000/TIFF/BMP, and the editor previews pages
+# in a browser, so those are converted once — into the cache folder, never
+# beside the user's scans.  (OCR and rendering read .jp2 natively.)
+BROWSER_SAFE_EXTS = {".png", ".jpg", ".jpeg"}
+
+
+def cache_dir(out_dir):
+    """The per-document cache folder.  Deliberately NOT dot-hidden: it can
+    be copied to another machine along with the scans, or deleted when the
+    project is done.  Migrates a pre-2.2 `.cache/` folder (and the
+    `<stem>_jp.png` conversions that used to litter the scan folder) the
+    first time it's needed, so existing work is never lost."""
+    d = out_dir / CACHE_DIRNAME
+    if d.is_dir():
+        return d
+    legacy = out_dir / ".cache"
+    if legacy.is_dir():
+        log(f"  migrating .cache/ -> {CACHE_DIRNAME}/")
+        legacy.rename(d)
+    else:
+        d.mkdir(parents=True, exist_ok=True)
+    for old in list(out_dir.glob("*_jp.png")):   # tidy old conversions away
+        try:
+            old.rename(d / old.name)
+        except OSError:
+            pass
+    return d
+
+
 def cache_path(src, out_dir):
-    return out_dir / ".cache" / f"{src.stem}.json"
+    return cache_dir(out_dir) / f"{src.stem}.json"
+
+
+def page_image(src, out_dir):
+    """A browser-displayable copy of the scan: the source itself when it is
+    already PNG/JPEG, else a converted PNG kept inside the cache folder."""
+    if src.suffix.lower() in BROWSER_SAFE_EXTS:
+        return src
+    png = cache_dir(out_dir) / f"{src.stem}_jp.png"
+    if not png.exists():
+        log(f"  converting {src.name} for display")
+        Image.open(src).save(png)
+    return png
 
 
 def load_user_patches(src, out_dir):

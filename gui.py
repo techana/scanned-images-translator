@@ -9,7 +9,8 @@ Serves a single-page editor at http://localhost:<port>:
   - per-block editing: double-click to edit text, drag edges to resize the
     block, font-size dropdown in the top bar for the selected block
 
-Edits are saved back into the page's cache JSON (<outdir>/.cache/<stem>.json),
+Edits are saved back into the page's cache JSON
+(<outdir>/image_translator.cache/<stem>.json),
 but ONLY for blocks the user actually touched:
   blk["en"]       - edited translation
   blk["gui_bbox"] - block rectangle as resized in the GUI
@@ -220,8 +221,9 @@ def choose_save_path(default_name):
 
 
 def png_for(src):
-    return src if src.suffix.lower() == ".png" \
-        else out_dir_for(src) / f"{src.stem}_jp.png"
+    """Browser-displayable copy of the page (converted into the cache for
+    formats browsers can't show, e.g. .jp2)."""
+    return tp.page_image(src, out_dir_for(src))
 
 
 def page_json(idx):
@@ -279,7 +281,7 @@ def add_block(idx, fields):
     """Append a GUI-created text block to the page's cache; returns its id.
     Such blocks have no OCR lines — they render GUI-style only."""
     src = STATE["files"][idx]
-    cache = out_dir_for(src) / ".cache" / f"{src.stem}.json"
+    cache = tp.cache_path(src, out_dir_for(src))
     with LOCK:
         data = json.loads(cache.read_text())
         bbox = [int(v) for v in fields["bbox"]]
@@ -317,7 +319,7 @@ def save_edits(idx, edits):
     gui_bbox/font_px, or the block would needlessly switch from the CLI's
     slot layout to GUI-style rendering."""
     src = STATE["files"][idx]
-    cache = out_dir_for(src) / ".cache" / f"{src.stem}.json"
+    cache = tp.cache_path(src, out_dir_for(src))
     with LOCK:
         data = json.loads(cache.read_text())
         for e in edits:
@@ -415,7 +417,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, page_json(idx))
             elif parts[:1] == ["img"] and len(parts) == 2:
                 png = png_for(STATE["files"][int(parts[1])])
-                self._send(200, png.read_bytes(), "image/png")
+                mime = ("image/jpeg" if png.suffix.lower() in (".jpg", ".jpeg")
+                        else "image/png")
+                self._send(200, png.read_bytes(), mime)
             else:
                 self._send(404, {"error": "not found"})
         except Exception as e:
