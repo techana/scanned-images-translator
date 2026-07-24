@@ -170,7 +170,7 @@
   <label class="ctl" title="Line spacing — ⇧⌘+ / ⇧⌘-">Spacing
     <input type="number" id="linespace" min="0.5" max="3" step="0.1" disabled>
   </label>
-  <button id="fmtbtn"
+  <button id="fmtbtn" disabled
           title="Copy formatting: pick a text box, then click others to apply (Esc to stop)">Ƒ</button>
   <button id="boldbtn" disabled title="Bold (⌘B)"><b>B</b></button>
   <button id="alignleft" disabled title="Align text left">⍇</button>
@@ -834,38 +834,59 @@ $('boldbtn').onclick = () => toggleBold();
 // and applies it to every text box clicked until Ƒ or Esc turns it off.
 let fmtPainter = null;
 
+// Ƒ is enabled like the other format controls (a box must be selected) —
+// but stays enabled while armed, so it can always be toggled back off.
+function updateFmtBtn() {
+  $('fmtbtn').disabled = !selected && !fmtPainter;
+}
+
 function setPainter(props) {
   fmtPainter = props;
   $('fmtbtn').classList.toggle('on', !!props);
   $('overlay').classList.toggle('painting', !!props);
-  if (props) setStatus('Formatting copied — click text boxes to apply '
-                     + '(Ƒ or Esc to stop)');
-  else setStatus('');
+  setStatus(props ? 'Formatting copied — click text boxes to apply '
+                  + '(Ƒ or Esc to stop)' : '');
+  updateFmtBtn();
 }
+
+const fmtOf = b => ({font_px: b.font_px, line_spacing: b.line_spacing,
+                     bold: !!b.bold, color: b.color, bg: b.bg,
+                     align: b.align});
 
 $('fmtbtn').onclick = () => {
   if (fmtPainter) { setPainter(null); return; }
-  if (!selected) {
-    setStatus('Select a text box first to copy its formatting', true);
-    return;
-  }
-  setPainter({font_px: selected.font_px, line_spacing: selected.line_spacing,
-              bold: !!selected.bold, color: selected.color, bg: selected.bg});
+  if (selected) setPainter(fmtOf(selected));
 };
 
-function applyFormat(blk) {
-  const p = fmtPainter;
-  if (!p) return;
+// Paint `p` onto blk. `record` pushes the previous look onto the undo
+// stack (skipped when the undo itself is doing the restoring).
+function applyFormatTo(blk, p, record) {
+  if (record) pushUndo({type: 'format', page: cur, id: blk.id,
+                        prev: fmtOf(blk)});
   Object.assign(blk, {font_px: p.font_px, line_spacing: p.line_spacing,
-                      bold: p.bold, color: p.color, bg: p.bg});
+                      bold: p.bold, color: p.color, bg: p.bg,
+                      align: p.align});
   Object.assign(blk._txt.style, {fontSize: p.font_px + 'px',
                                  lineHeight: p.line_spacing,
                                  fontWeight: p.bold ? 'bold' : 'normal',
-                                 color: p.color, background: p.bg});
+                                 color: p.color, background: p.bg,
+                                 textAlign: p.align});
   blk._patches.forEach(d => d.style.background = p.bg);
   clearPatches(blk);          // size/spacing changed the text extent
   updateOverflow(blk);
+  if (selected === blk) {     // keep the toolbar in step
+    fontSize.value = blk.font_px;
+    lineSpace.value = blk.line_spacing;
+    $('colorswatch').style.background = blk.color;
+    $('bgswatch').style.background = blk.bg;
+    setAlignButtons(blk.align);
+    $('boldbtn').classList.toggle('on', !!blk.bold);
+  }
   scheduleSave();
+}
+
+function applyFormat(blk) {
+  if (fmtPainter) applyFormatTo(blk, fmtPainter, true);
 }
 
 // Bind BOTH 'input' and 'change': some engines (WebKit) fire only
@@ -1228,6 +1249,22 @@ async function performUndo() {
     await saveDeleted(u.page, u.id, true);
     return;
   }
+  if (u.type === 'format') {            // restore the pre-paint look
+    if (u.page === cur) {
+      const b = page.blocks.find(x => x.id === u.id);
+      if (b) applyFormatTo(b, u.prev, false);   // false: don't re-record
+    } else {
+      await fetch('/api/page/' + u.page + '/save', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({edits: [{id: u.id, font_px: u.prev.font_px,
+              line_spacing: u.prev.line_spacing, bold: u.prev.bold,
+              color: u.prev.color, bg: u.prev.bg, align: u.prev.align}]})});
+    }
+    setStatus('Formatting undone');
+    setTimeout(() => { if ($('status').textContent === 'Formatting undone')
+                         setStatus(''); }, 1500);
+    return;
+  }
   // move: restore the block's pre-move rectangle
   if (u.page === cur) {
     const b = page.blocks.find(x => x.id === u.id);
@@ -1508,6 +1545,7 @@ function select(blk) {
   for (const el of [fontSize, lineSpace, colorBtn, bgPick, $('delblk'),
                     $('alignleft'), $('alignright'), $('boldbtn')])
     el.disabled = false;
+  updateFmtBtn();
   fontSize.value = blk.font_px;
   lineSpace.value = blk.line_spacing;
   $('colorswatch').style.background = blk.color;
@@ -1530,6 +1568,7 @@ function deselect() {
   for (const el of [fontSize, lineSpace, colorBtn, bgPick, $('delblk'),
                     $('alignleft'), $('alignright'), $('boldbtn')])
     el.disabled = true;
+  updateFmtBtn();
 }
 $('viewport').addEventListener('mousedown', e => {
   if (!e.target.closest('.block')) deselect();
