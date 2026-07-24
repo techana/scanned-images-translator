@@ -249,6 +249,7 @@ def page_json(idx):
             "color": blk.get("font_color") or "#141414",
             "bg": blk.get("bg_color") or "#ffffff",
             "align": blk.get("align") or ("right" if tp.is_rtl() else "left"),
+            "bold": bool(blk.get("bold")),
             "patches": patches,
             # geometry-edited blocks lost their auto erase patches for good
             "edited": ("gui_bbox" in blk or "font_px" in blk
@@ -256,7 +257,20 @@ def page_json(idx):
         })
     return {"index": idx, "total": len(STATE["files"]), "name": src.name,
             "width": w, "height": h, "blocks": out_blocks,
+            "user_patches": tp.load_user_patches(src, out_dir_for(src)),
             "rtl": tp.is_rtl()}
+
+
+def save_user_patches(idx, patches):
+    """Replace the page's patch-rectangle list in its cache."""
+    src = STATE["files"][idx]
+    cache = tp.cache_path(src, out_dir_for(src))
+    with LOCK:
+        data = json.loads(cache.read_text())
+        data["user_patches"] = [
+            {"bbox": [int(v) for v in p["bbox"]],
+             "color": str(p.get("color") or "#ffffff")} for p in patches]
+        cache.write_text(json.dumps(data, ensure_ascii=False, indent=1))
 
 
 def add_block(idx, fields):
@@ -322,6 +336,8 @@ def save_edits(idx, edits):
                 blk["bg_color"] = str(e["bg"])
             if "align" in e:
                 blk["align"] = str(e["align"])
+            if "bold" in e:
+                blk["bold"] = bool(e["bold"])
             if "deleted" in e:
                 blk["deleted"] = bool(e["deleted"])
         cache.write_text(json.dumps(data, ensure_ascii=False, indent=1))
@@ -450,6 +466,11 @@ class Handler(BaseHTTPRequestHandler):
                     and parts[3] == "add"):
                 self._send(200, {"id": add_block(int(parts[2]),
                                                  self._json_body())})
+            elif (parts[:2] == ["api", "page"] and len(parts) == 4
+                    and parts[3] == "patches"):
+                save_user_patches(int(parts[2]),
+                                  self._json_body().get("patches", []))
+                self._send(200, {"ok": True})
             elif (parts[:2] == ["api", "page"] and len(parts) == 4
                     and parts[3] == "refresh"):
                 # re-process from scratch: discard cache + edits, re-run

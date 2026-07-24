@@ -651,12 +651,34 @@ def _scan_font_dirs():
 
 _font_fallback = None                   # cached result of the dir scan
 
+# Bold faces, tried first when a block is bold (falls back to the regular
+# list, so a missing bold face degrades to normal weight rather than
+# failing).
+BOLD_FONT_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",       # macOS
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",    # Linux
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",                            # Windows
+    "C:/Windows/Fonts/segoeuib.ttf",
+]
+BOLD_ARABIC_FONTS = [
+    "/System/Library/Fonts/Supplemental/Tahoma Bold.ttf",      # macOS
+    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf",  # Linux
+    "C:/Windows/Fonts/tahomabd.ttf",                           # Windows
+]
 
-def load_font(size):
+
+def load_font(size, bold=False):
     global _font_fallback
     # Helvetica has no Arabic glyphs; PIL+raqm shapes RTL fine with these
     candidates = (ARABIC_FONTS + FONT_CANDIDATES if is_rtl()
                   else FONT_CANDIDATES)
+    if bold:
+        candidates = ((BOLD_ARABIC_FONTS if is_rtl() else [])
+                      + BOLD_FONT_CANDIDATES + candidates)
     for path in candidates:
         try:
             return ImageFont.truetype(path, int(size))
@@ -738,7 +760,7 @@ def default_font_px(blk, med_h):
     lo, hi, best = MIN_FONT, cap, MIN_FONT
     while lo <= hi:
         mid = (lo + hi) // 2
-        lines = wrap_text(draw, text, load_font(mid), w)
+        lines = wrap_text(draw, text, load_font(mid, blk.get("bold")), w)
         if len(lines) * mid * LINE_SPACING <= h * 1.05:
             best, lo = mid, mid + 1
         else:
@@ -753,7 +775,7 @@ def render_gui_block(draw, blk, med_h):
     x0, y0, x1, y1 = blk.get("gui_bbox") or blk["bbox"]
     size = int(blk.get("font_px") or default_font_px(blk, med_h))
     ls = float(blk.get("line_spacing") or 1.0)
-    font = load_font(size)
+    font = load_font(size, blk.get("bold"))
     lines = wrap_text(draw, blk["en"], font, x1 - x0)
     lh = size * ls
     bg = blk.get("bg_color") or "white"
@@ -781,17 +803,21 @@ def render_gui_block(draw, blk, med_h):
         y += lh
 
 
-def render_page(img, blocks, keepouts):
+def render_page(img, blocks, keepouts, user_patches=()):
     """WYSIWYG render: every block is drawn exactly the way the GUI shows
     it — same rectangle, font, spacing, colors and greedy wrap — via
     render_gui_block.  (The former slot layout produced different wraps
     than the editor, which broke page layout the moment a user relied on
     what they saw.)  Erase patches remain only for blocks whose geometry
     was never edited in the GUI; "transparent" backgrounds skip both the
-    erase and the text backing.  keepouts is retained for signature
-    compatibility."""
+    erase and the text backing.  `user_patches` are the rectangles drawn
+    in the GUI's Patch menu — they sit between the scan and the text.
+    keepouts is retained for signature compatibility."""
     img = img.convert("RGB")
     draw = ImageDraw.Draw(img)
+    for p in user_patches:               # under everything the app draws
+        x0, y0, x1, y1 = p["bbox"]
+        draw.rectangle([x0, y0, x1, y1], fill=p.get("color") or "white")
     for blk in blocks:
         # GUI geometry-edited blocks get NO automatic erase: their only
         # backing is the text-following rectangle in render_gui_block, so
@@ -1023,7 +1049,7 @@ def save_pdf(img, path, fmt, blocks):
                  if slots else MIN_FONT)
         size = int(blk.get("font_px") or default_font_px(blk, med_h))
         ls = float(blk.get("line_spacing") or 1.0)
-        font = load_font(size)
+        font = load_font(size, blk.get("bold"))
         lines = wrap_text(draw, blk["en"], font, x1 - x0)
         align = blk.get("align") or ("right" if rtl else "left")
         direction = "rtl" if rtl else None
@@ -1059,14 +1085,29 @@ def save_pdf(img, path, fmt, blocks):
     doc.close()
 
 
+def cache_path(src, out_dir):
+    return out_dir / ".cache" / f"{src.stem}.json"
+
+
+def load_user_patches(src, out_dir):
+    """Patch rectangles drawn in the GUI (Patch > Create).  Stored in the
+    page cache; a from-scratch reprocess drops them like other edits."""
+    try:
+        data = json.loads(cache_path(src, out_dir).read_text())
+        return data.get("user_patches", [])
+    except Exception:
+        return []
+
+
 def process_page(src, out_dir, force=False, out_png=None, fmt=None):
     page_png, blocks, keepouts = prepare_page(src, out_dir, force)
     img = Image.open(page_png)
     set_scale(img.size[0])
     out_png = out_png or out_dir / f"{src.stem}_{TARGET_LANG}.png"
     log("  rendering...")
-    save_output(render_page(img, blocks, keepouts), out_png, fmt,
-                blocks=blocks)
+    rendered = render_page(img, blocks, keepouts,
+                           load_user_patches(src, out_dir))
+    save_output(rendered, out_png, fmt, blocks=blocks)
     log(f"  wrote {out_png.name}")
     return out_png
 

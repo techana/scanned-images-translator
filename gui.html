@@ -26,21 +26,26 @@
       border-radius: 5px; padding: 4px 2px 4px 6px; font: inherit; }
   #fontsize { width: 58px; }
   #linespace { width: 52px; }
-  #bgbtn, #colorbtn { padding: 4px 8px; }
+  #pageinput { width: 52px; text-align: right;
+      font-variant-numeric: tabular-nums; }
+  #boldbtn.on { outline: 2px solid #6f9dff; }
+  #bgbtn, #colorbtn, #patchbtn { padding: 4px 8px; }
+  #patchbtn.active { outline: 2px solid #6f9dff; }
   #topbar .sw { display: inline-block; width: 13px; height: 13px;
       border-radius: 3px; background: #fff; border: 1px solid #888;
       vertical-align: -2px; margin: 0 4px 0 6px; }
   #bgbtn.active { outline: 2px solid #6f9dff; }
   #alignleft.on, #alignright.on { outline: 2px solid #6f9dff; }
-  #bgmenu, #colormenu { position: absolute; top: calc(100% + 4px); left: 0;
+  #bgmenu, #colormenu, #patchmenu { position: absolute;
+            top: calc(100% + 4px); left: 0;
             display: none;
             background: #2f3136; border: 1px solid #55585e; border-radius: 6px;
             min-width: 150px; overflow: hidden; box-shadow: 0 6px 18px #0009;
             z-index: 150; }
-  #bgmenu.show, #colormenu.show { display: block; }
-  #bgmenu div, #colormenu div { padding: 8px 14px; cursor: pointer;
+  #bgmenu.show, #colormenu.show, #patchmenu.show { display: block; }
+  #bgmenu div, #colormenu div, #patchmenu div { padding: 8px 14px; cursor: pointer;
                                 white-space: nowrap; }
-  #bgmenu div:hover, #colormenu div:hover { background: #4a4d53; }
+  #bgmenu div:hover, #colormenu div:hover, #patchmenu div:hover { background: #4a4d53; }
   #colormenu .csw { display: inline-block; width: 13px; height: 13px;
       border-radius: 3px; border: 1px solid #888; vertical-align: -2px;
       margin-right: 8px; }
@@ -76,7 +81,11 @@
   #overlay { position: absolute; top: 0; left: 0; }
 
   .patch { position: absolute; background: #fff; }
-  .block { position: absolute; cursor: default; }
+  /* user-drawn patch rectangles: below the text blocks, above the scan */
+  .upatch { position: absolute; background: #fff; z-index: 1; }
+  .upatch.selected { outline: 1.5px solid #2f7df6; }
+  #stage.drawing { cursor: crosshair; }
+  .block { position: absolute; cursor: default; z-index: 2; }
   .block.selected { cursor: move; }
   /* white backing sits on the text itself (height:auto), so it follows the
      text as it rewraps when the block or font is resized */
@@ -136,11 +145,12 @@
   </div>
   <div class="sep"></div>
   <button id="prev" title="Previous page (←)">◀</button>
-  <span id="counter">– / –</span>
+  <input type="number" id="pageinput" min="1" title="Go to page (type + Enter)">
+  <span id="counter">/ –</span>
   <button id="next" title="Next page (→)">▶</button>
   <span id="pagename"></span>
   <div class="sep"></div>
-  <label class="ctl">Translation
+  <label class="ctl">Opacity
     <input type="range" id="opacity" min="0" max="100" value="100">
     <span id="opv">100%</span>
   </label>
@@ -151,6 +161,7 @@
   <label class="ctl" title="Line spacing — ⇧⌘+ / ⇧⌘-">Spacing
     <input type="number" id="linespace" min="0.5" max="3" step="0.1" disabled>
   </label>
+  <button id="boldbtn" disabled title="Bold (⌘B)"><b>B</b></button>
   <button id="alignleft" disabled title="Align text left">⍇</button>
   <button id="alignright" disabled title="Align text right">⍈</button>
   <div id="colorwrap" style="position:relative">
@@ -161,13 +172,23 @@
   </div>
   <div id="bgwrap" style="position:relative">
     <button id="bgbtn" disabled
-            title="Patch (background) of the selected block">
-      Patch<span class="sw" id="bgswatch"></span> ▾
+            title="Background of the selected text block">
+      Back<span class="sw" id="bgswatch"></span> ▾
     </button>
     <div id="bgmenu">
       <div id="bg-white">White</div>
       <div id="bg-pick">Pick a color…</div>
       <div id="bg-transparent">Transparent</div>
+    </div>
+  </div>
+  <div id="patchwrap" style="position:relative">
+    <button id="patchbtn" title="Patch rectangles under the text layer">
+      Patch<span class="sw" id="patchswatch"></span> ▾
+    </button>
+    <div id="patchmenu">
+      <div id="patch-create">Create</div>
+      <div id="patch-white">White</div>
+      <div id="patch-pick">Pick a Color</div>
     </div>
   </div>
   <div class="sep"></div>
@@ -212,7 +233,7 @@
   <div class="modal">
     <h2>Images Translator</h2>
     <div class="note">
-      Version 2.0<br><br>
+      Version 2.1<br><br>
       Translate scanned document pages in place — OCR, translate,
       re-render, edit.<br><br>
       <a href="https://github.com/techana/scanned-images-translator"
@@ -635,12 +656,33 @@ async function saveAll() {
 
 $('prev').onclick = () => loadPage(cur - 1);
 $('next').onclick = () => loadPage(cur + 1);
+
+// type a page number + Enter to jump straight there
+$('pageinput').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.keyCode !== 13) return;
+  e.preventDefault();
+  const n = parseInt($('pageinput').value, 10);
+  if (n >= 1 && n <= total) { $('pageinput').blur(); loadPage(n - 1); }
+  else $('pageinput').value = cur + 1;      // out of range — put it back
+});
+$('pageinput').addEventListener('blur', () => { $('pageinput').value = cur + 1; });
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.keyCode === 83)) {
     e.preventDefault(); savePage(); return;
   }
   if (e.key === 'Escape') {
-    if (picking) setPicking(false); else deselect();
+    if (picking) setPicking(false);
+    else if (patchDrawMode) setPatchDraw(false);
+    else if (patchPicking) { patchPicking = false;
+                             $('viewport').style.cursor = ''; setStatus(''); }
+    else if (selectedPatch) deselectPatch();
+    else deselect();
+    return;
+  }
+  if (selectedPatch && (e.key === 'Delete' || e.key === 'Backspace'
+                        || e.keyCode === 46 || e.keyCode === 8)) {
+    e.preventDefault();
+    deletePatch();
     return;
   }
   const ae = document.activeElement;
@@ -649,6 +691,12 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.keyCode === 90)) {
     e.preventDefault();
     performUndo();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.keyCode === 66)
+      && selected) {
+    e.preventDefault();
+    toggleBold();
     return;
   }
   // ⌘+/⌘- font size; ⇧⌘+/⇧⌘- line spacing (browser zoom untouched
@@ -735,6 +783,18 @@ function setAlignButtons(align) {
 $('alignleft').onclick = () => applyAlign('left');
 $('alignright').onclick = () => applyAlign('right');
 
+// ------------------------------------------- bold (⌘B) for the block
+function toggleBold(force) {
+  if (!selected) return;
+  selected.bold = force === undefined ? !selected.bold : !!force;
+  selected._txt.style.fontWeight = selected.bold ? 'bold' : 'normal';
+  $('boldbtn').classList.toggle('on', selected.bold);
+  clearPatches(selected);          // weight changes the text extent
+  updateOverflow(selected);
+  scheduleSave();
+}
+$('boldbtn').onclick = () => toggleBold();
+
 // Bind BOTH 'input' and 'change': some engines (WebKit) fire only
 // 'change' for spinner / arrow-key stepping on number inputs, which
 // silently swallowed font edits.
@@ -791,6 +851,7 @@ bgPick.onclick = e => {
 document.addEventListener('click', () => {
   bgMenu.classList.remove('show');
   colorMenu.classList.remove('show');
+  $('patchmenu').classList.remove('show');
 });
 $('bg-white').onclick = () => {
   bgMenu.classList.remove('show');
@@ -819,19 +880,22 @@ document.addEventListener('mousedown', e => {
   const x = Math.floor((e.clientX - r.left) / scale);
   const y = Math.floor((e.clientY - r.top) / scale);
   if (x < 0 || y < 0 || x >= page.width || y >= page.height) return;
-  // average a 5x5 neighborhood: scanned halftones are black/white dot
-  // dithers, so a single pixel would be a lottery between the two
+  applyBg(selected, samplePixel(x, y));
+  scheduleSave();
+}, true);           // capture phase, so blocks/patches don't eat the click
+
+// Average a 5x5 neighbourhood: scanned halftones are black/white dot
+// dithers, so a single pixel would be a lottery between the two.
+function samplePixel(x, y) {
   const x0 = Math.max(0, x - 2), y0 = Math.max(0, y - 2);
   const w = Math.min(5, page.width - x0), h = Math.min(5, page.height - y0);
   const d = pickCtx().getImageData(x0, y0, w, h).data;
   const sum = [0, 0, 0];
   for (let i = 0; i < d.length; i += 4)
     for (let c = 0; c < 3; c++) sum[c] += d[i + c];
-  const hex = '#' + sum.map(v =>
+  return '#' + sum.map(v =>
       Math.round(v / (w * h)).toString(16).padStart(2, '0')).join('');
-  applyBg(selected, hex);
-  scheduleSave();
-}, true);           // capture phase, so blocks/patches don't eat the click
+}
 
 function applyBg(blk, hex) {
   blk.bg = hex;
@@ -839,6 +903,223 @@ function applyBg(blk, hex) {
   blk._patches.forEach(p => p.style.background = hex);
   $('bgswatch').style.background = hex;
 }
+
+// ===================== Patch rectangles (Patch ▾ menu) =====================
+// Solid rectangles the user draws between the scan and the text layer, to
+// blank out artwork the OCR left behind. Stored per page in the cache.
+
+let userPatches = [];        // [{bbox:[x0,y0,x1,y1], color, _div}]
+let selectedPatch = null;
+let patchDrawMode = false, patchPicking = false;
+
+const patchMenu = $('patchmenu');
+$('patchbtn').onclick = e => {
+  e.stopPropagation();
+  patchMenu.classList.toggle('show');
+};
+$('patch-create').onclick = () => {
+  patchMenu.classList.remove('show');
+  setPatchDraw(true);
+};
+$('patch-white').onclick = () => {
+  patchMenu.classList.remove('show');
+  if (selectedPatch) applyPatchColor(selectedPatch, '#ffffff');
+  else setStatus('Select a patch rectangle first', true);
+};
+$('patch-pick').onclick = () => {
+  patchMenu.classList.remove('show');
+  if (!selectedPatch) { setStatus('Select a patch rectangle first', true); return; }
+  patchPicking = true;
+  $('viewport').style.cursor = 'crosshair';
+  setStatus('Click anywhere on the page to pick the patch colour…');
+};
+
+function setPatchDraw(on) {
+  patchDrawMode = on;
+  $('patchbtn').classList.toggle('active', on);
+  $('stage').classList.toggle('drawing', on);
+  setStatus(on ? 'Drag on the page to draw a patch rectangle (Esc to cancel)'
+               : '');
+}
+
+function applyPatchColor(p, hex) {
+  p.color = hex;
+  p._div.style.background = hex;
+  $('patchswatch').style.background = hex;
+  savePatches();
+}
+
+async function savePatches() {
+  if (cur < 0) return;
+  try {
+    await fetch('/api/page/' + cur + '/patches', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({patches: userPatches.map(p =>
+            ({bbox: p.bbox, color: p.color}))})});
+  } catch (e) { setStatus('Patch save failed: ' + e.message, true); }
+}
+
+function placePatch(p) {
+  const [x0, y0, x1, y1] = p.bbox;
+  Object.assign(p._div.style, {left: x0 + 'px', top: y0 + 'px',
+                               width: (x1 - x0) + 'px',
+                               height: (y1 - y0) + 'px'});
+}
+
+function addPatchDom(p) {
+  const d = document.createElement('div');
+  d.className = 'upatch';
+  d.style.background = p.color;
+  $('overlay').appendChild(d);
+  p._div = d;
+  placePatch(p);
+  d.addEventListener('mousedown', e => {
+    if (patchDrawMode || patchPicking) return;
+    e.stopPropagation();
+    selectPatch(p);
+    startPatchMove(e, p);
+  });
+}
+
+function selectPatch(p) {
+  if (selectedPatch === p) return;
+  deselectPatch();
+  deselect();                       // text-block selection is exclusive
+  selectedPatch = p;
+  p._div.classList.add('selected');
+  $('patchswatch').style.background = p.color;
+  addPatchHandles(p);
+}
+
+function deselectPatch() {
+  if (!selectedPatch) return;
+  selectedPatch._div.classList.remove('selected');
+  selectedPatch._div.querySelectorAll('.handle').forEach(h => h.remove());
+  selectedPatch = null;
+}
+
+function addPatchHandles(p) {
+  const sz = Math.max(8, 12 / scale);
+  for (const dir of DIRS) {
+    const h = document.createElement('div');
+    h.className = 'handle';
+    h.style.width = h.style.height = sz + 'px';
+    h.style.cursor = dir + '-resize';
+    const off = -sz / 2 + 'px';
+    if (dir.includes('n')) h.style.top = off;
+    if (dir.includes('s')) h.style.bottom = off;
+    if (dir.includes('w')) h.style.left = off;
+    if (dir.includes('e')) h.style.right = off;
+    if (dir === 'n' || dir === 's') { h.style.left = '50%'; h.style.marginLeft = off; }
+    if (dir === 'e' || dir === 'w') { h.style.top = '50%'; h.style.marginTop = off; }
+    h.addEventListener('mousedown', e => startPatchResize(e, p, dir));
+    p._div.appendChild(h);
+  }
+}
+
+function startPatchMove(e, p) {
+  e.preventDefault();
+  const sx = e.clientX, sy = e.clientY, start = [...p.bbox];
+  let moved = false;
+  function mv(ev) {
+    if (!moved && Math.abs(ev.clientX - sx) < 3
+               && Math.abs(ev.clientY - sy) < 3) return;
+    moved = true;
+    const dx = Math.round((ev.clientX - sx) / scale);
+    const dy = Math.round((ev.clientY - sy) / scale);
+    p.bbox = [start[0] + dx, start[1] + dy, start[2] + dx, start[3] + dy];
+    placePatch(p);
+  }
+  function up() {
+    document.removeEventListener('mousemove', mv);
+    document.removeEventListener('mouseup', up);
+    if (moved) savePatches();
+  }
+  document.addEventListener('mousemove', mv);
+  document.addEventListener('mouseup', up);
+}
+
+function startPatchResize(e, p, dir) {
+  e.preventDefault();
+  e.stopPropagation();
+  const sx = e.clientX, sy = e.clientY, start = [...p.bbox], MIN = 4;
+  function mv(ev) {
+    const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
+    const b = [...start];
+    if (dir.includes('w')) b[0] = Math.min(start[0] + dx, b[2] - MIN);
+    if (dir.includes('e')) b[2] = Math.max(start[2] + dx, b[0] + MIN);
+    if (dir.includes('n')) b[1] = Math.min(start[1] + dy, b[3] - MIN);
+    if (dir.includes('s')) b[3] = Math.max(start[3] + dy, b[1] + MIN);
+    p.bbox = b.map(Math.round);
+    placePatch(p);
+  }
+  function up() {
+    document.removeEventListener('mousemove', mv);
+    document.removeEventListener('mouseup', up);
+    savePatches();
+  }
+  document.addEventListener('mousemove', mv);
+  document.addEventListener('mouseup', up);
+}
+
+function deletePatch() {
+  if (!selectedPatch) return;
+  const p = selectedPatch;
+  deselectPatch();
+  p._div.remove();
+  userPatches = userPatches.filter(x => x !== p);
+  savePatches();
+}
+
+// draw a new rectangle by dragging on the page
+$('stage').addEventListener('mousedown', e => {
+  if (!patchDrawMode || !page) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const r = $('stage').getBoundingClientRect();
+  const x0 = Math.round((e.clientX - r.left) / scale);
+  const y0 = Math.round((e.clientY - r.top) / scale);
+  const p = {bbox: [x0, y0, x0, y0], color: '#ffffff'};
+  userPatches.push(p);
+  addPatchDom(p);
+  function mv(ev) {
+    const x = Math.round((ev.clientX - r.left) / scale);
+    const y = Math.round((ev.clientY - r.top) / scale);
+    p.bbox = [Math.min(x0, x), Math.min(y0, y),
+              Math.max(x0, x), Math.max(y0, y)];
+    placePatch(p);
+  }
+  function up() {
+    document.removeEventListener('mousemove', mv);
+    document.removeEventListener('mouseup', up);
+    setPatchDraw(false);
+    if (p.bbox[2] - p.bbox[0] < 3 || p.bbox[3] - p.bbox[1] < 3) {
+      p._div.remove();                       // a click, not a drag
+      userPatches = userPatches.filter(x => x !== p);
+      return;
+    }
+    selectPatch(p);
+    savePatches();
+  }
+  document.addEventListener('mousemove', mv);
+  document.addEventListener('mouseup', up);
+}, true);
+
+// eyedropper for the selected patch (Patch > Pick a Color)
+document.addEventListener('mousedown', e => {
+  if (!patchPicking) return;
+  e.preventDefault();
+  e.stopPropagation();
+  patchPicking = false;
+  $('viewport').style.cursor = '';
+  setStatus('');
+  if (!selectedPatch || !$('viewport').contains(e.target)) return;
+  const r = $('stage').getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / scale);
+  const y = Math.floor((e.clientY - r.top) / scale);
+  if (x < 0 || y < 0 || x >= page.width || y >= page.height) return;
+  applyPatchColor(selectedPatch, samplePixel(x, y));
+}, true);
 
 // ------------------------------------ undo stack (deletes + moves, ⌘Z)
 const undoStack = [];   // [{type:'delete'|'move', page, id, bbox?}, ...]
@@ -943,7 +1224,9 @@ async function loadPage(i) {
   } catch (e) { setStatus('Page failed: ' + e.message, true); return; }
   page = p; cur = i;
   pickCanvas = null;                // pixel cache belongs to the old page
-  $('counter').textContent = (i + 1) + ' / ' + total;
+  $('pageinput').value = i + 1;
+  $('pageinput').max = total;
+  $('counter').textContent = '/ ' + total;
   $('pagename').textContent = p.name;
   $('prev').disabled = i === 0;
   $('next').disabled = i === total - 1;
@@ -974,6 +1257,10 @@ function buildOverlay() {
   ov.innerHTML = '';
   ov.style.width = page.width + 'px';
   ov.style.height = page.height + 'px';
+  selectedPatch = null;
+  userPatches = (page.user_patches || []).map(p => ({
+      bbox: p.bbox.slice(), color: p.color || '#ffffff'}));
+  userPatches.forEach(addPatchDom);     // under the blocks (z-index)
   for (const blk of page.blocks) addBlockDom(blk);
   ov.style.opacity = $('opacity').value / 100;
 }
@@ -1009,14 +1296,16 @@ function addBlockDom(blk) {
   Object.assign(txt.style, {fontSize: blk.font_px + 'px',
                             lineHeight: blk.line_spacing,
                             color: blk.color, background: blk.bg,
-                            textAlign: blk.align});
+                            textAlign: blk.align,
+                            fontWeight: blk.bold ? 'bold' : 'normal'});
   div.appendChild(txt);
   ov.appendChild(div);
   blk._div = div; blk._txt = txt;
   // per-field baseline: save only what the user actually changes
   blk._orig = {en: blk.en, bbox: JSON.stringify(blk.bbox),
                font: blk.font_px, ls: blk.line_spacing,
-               color: blk.color, bg: blk.bg, align: blk.align};
+               color: blk.color, bg: blk.bg, align: blk.align,
+               bold: !!blk.bold};
   placeBlock(blk);
 
   div.addEventListener('mousedown', e => {
@@ -1129,17 +1418,19 @@ const DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 function select(blk) {
   if (selected === blk) return;
   deselect();
+  deselectPatch();                  // block / patch selection is exclusive
   selected = blk;
   blk._div.classList.add('selected');
   addHandles(blk);
   for (const el of [fontSize, lineSpace, colorBtn, bgPick, $('delblk'),
-                    $('alignleft'), $('alignright')])
+                    $('alignleft'), $('alignright'), $('boldbtn')])
     el.disabled = false;
   fontSize.value = blk.font_px;
   lineSpace.value = blk.line_spacing;
   $('colorswatch').style.background = blk.color;
   $('bgswatch').style.background = blk.bg;
   setAlignButtons(blk.align);
+  $('boldbtn').classList.toggle('on', !!blk.bold);
 }
 
 function deselect() {
@@ -1152,12 +1443,14 @@ function deselect() {
   $('bgswatch').style.background = '#fff';
   $('colorswatch').style.background = '#fff';
   setAlignButtons(null);
+  $('boldbtn').classList.remove('on');
   for (const el of [fontSize, lineSpace, colorBtn, bgPick, $('delblk'),
-                    $('alignleft'), $('alignright')])
+                    $('alignleft'), $('alignright'), $('boldbtn')])
     el.disabled = true;
 }
 $('viewport').addEventListener('mousedown', e => {
   if (!e.target.closest('.block')) deselect();
+  if (!e.target.closest('.upatch')) deselectPatch();
 });
 
 function addHandles(blk) {
@@ -1264,6 +1557,7 @@ async function doSave() {
     if (b.line_spacing !== b._orig.ls) e.line_spacing = b.line_spacing;
     if (b.color !== b._orig.color) e.color = b.color;
     if (b.align !== b._orig.align) e.align = b.align;
+    if (!!b.bold !== b._orig.bold) e.bold = !!b.bold;
     if (b.bg !== b._orig.bg) e.bg = b.bg;
     if (Object.keys(e).length > 1) edits.push(e);
   }
@@ -1278,7 +1572,7 @@ async function doSave() {
     for (const b of page.blocks)
       b._orig = {en: b.en, bbox: JSON.stringify(b.bbox), font: b.font_px,
                  ls: b.line_spacing, color: b.color, bg: b.bg,
-                 align: b.align};
+                 align: b.align, bold: !!b.bold};
     setStatus('Saved');
     setTimeout(() => { if ($('status').textContent === 'Saved') setStatus(''); }, 1500);
   } catch (e) { setStatus('Save failed: ' + e.message, true); }
