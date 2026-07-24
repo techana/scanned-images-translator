@@ -51,7 +51,8 @@
       margin-right: 8px; }
   #colormenu { max-height: 320px; overflow-y: auto; }
   .sep { width: 1px; height: 22px; background: #45484e; }
-  #counter { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+  #counter { min-width: 30px; text-align: left; margin-left: -7px;
+             font-variant-numeric: tabular-nums; }
   #pagename { color: #999; max-width: 220px; overflow: hidden;
               text-overflow: ellipsis; white-space: nowrap; }
   label.ctl { display: flex; align-items: center; gap: 6px; color: #aaa; }
@@ -182,12 +183,13 @@
     </div>
   </div>
   <div id="patchwrap" style="position:relative">
-    <button id="patchbtn" title="Patch rectangles under the text layer">
+    <button id="patchbtn" disabled
+            title="Patch rectangles under the text layer">
       Patch<span class="sw" id="patchswatch"></span> ▾
     </button>
     <div id="patchmenu">
       <div id="patch-create">Create</div>
-      <div id="patch-white">White</div>
+      <div id="patch-white">White Color</div>
       <div id="patch-pick">Pick a Color</div>
     </div>
   </div>
@@ -988,6 +990,7 @@ function selectPatch(p) {
   selectedPatch = p;
   p._div.classList.add('selected');
   $('patchswatch').style.background = p.color;
+  $('delblk').disabled = false;      // 🗑 acts on the active patch
   addPatchHandles(p);
 }
 
@@ -996,6 +999,7 @@ function deselectPatch() {
   selectedPatch._div.classList.remove('selected');
   selectedPatch._div.querySelectorAll('.handle').forEach(h => h.remove());
   selectedPatch = null;
+  if (!selected) $('delblk').disabled = true;   // nothing active now
 }
 
 function addPatchHandles(p) {
@@ -1191,7 +1195,8 @@ function deleteBlock() {
   pushUndo({type: 'delete', page: cur, id: blk.id});
   saveDeleted(cur, blk.id, true);
 }
-$('delblk').onclick = deleteBlock;
+// 🗑 deletes whichever object is active — patch rectangle or text block
+$('delblk').onclick = () => { if (selectedPatch) deletePatch(); else deleteBlock(); };
 $('undodel').onclick = performUndo;
 
 // A geometry edit (size, spacing, resize) permanently drops the block's
@@ -1227,6 +1232,7 @@ async function loadPage(i) {
   $('pageinput').value = i + 1;
   $('pageinput').max = total;
   $('counter').textContent = '/ ' + total;
+  $('patchbtn').disabled = false;     // a page is loaded: patches allowed
   $('pagename').textContent = p.name;
   $('prev').disabled = i === 0;
   $('next').disabled = i === total - 1;
