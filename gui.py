@@ -47,6 +47,8 @@ import translate_pages as tp
 HTML_PATH = Path(__file__).resolve().parent / "gui.html"
 SETTINGS_FILE = Path(__file__).resolve().parent / "gui-settings.json"
 
+SERVER = None                        # set in main(); used by /api/quit
+
 STATE = {"files": [], "out": None,   # out: forced output dir (else input dir)
          "save_dir": None,           # folder chosen via a save dialog
          "save_paths": {},           # page idx -> exact path chosen for it
@@ -466,6 +468,12 @@ class Handler(BaseHTTPRequestHandler):
                     and parts[3] == "add"):
                 self._send(200, {"id": add_block(int(parts[2]),
                                                  self._json_body())})
+            elif parts[:2] == ["api", "quit"]:
+                # the double-click launcher has no Dock icon or console, so
+                # the UI needs a way to stop the server
+                self._send(200, {"ok": True})
+                if SERVER is not None:
+                    threading.Timer(0.3, SERVER.shutdown).start()
             elif (parts[:2] == ["api", "page"] and len(parts) == 4
                     and parts[3] == "patches"):
                 save_user_patches(int(parts[2]),
@@ -600,7 +608,8 @@ def main():
                  f"  cd '{tp.TOOLS_DIR}' && swiftc -O -o ocr ocr.swift\n"
                  f"(or choose Tesseract / Disable in Settings)")
 
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    global SERVER
+    srv = SERVER = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}/"
     tp.log(f"images translator GUI: {url}")
     if not args.no_browser:

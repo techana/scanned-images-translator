@@ -145,6 +145,8 @@
       <hr>
       <div id="settingsitem">Settings…</div>
       <div id="aboutitem">About</div>
+      <hr>
+      <div id="quititem">Quit</div>
     </div>
   </div>
   <div class="sep"></div>
@@ -589,6 +591,20 @@ $('fmt-cancel').onclick = () => {
 $('aboutitem').onclick = () => {
   openMenu.classList.remove('show');
   $('aboutbg').classList.add('show');
+};
+
+// Stops the local server. Needed because the double-click launcher has no
+// Dock icon or terminal window to quit from.
+$('quititem').onclick = async () => {
+  openMenu.classList.remove('show');
+  if (!confirm('Quit Images Translator?\nThe local server will stop.')) return;
+  await flushSave();                       // don't lose pending edits
+  try { await fetch('/api/quit', {method: 'POST'}); } catch (e) {}
+  document.body.innerHTML =
+      '<div style="padding:60px;text-align:center;color:#888;'
+    + 'font:15px -apple-system,Helvetica,sans-serif">'
+    + 'Images Translator has stopped.<br><br>'
+    + 'You can close this tab. To start it again, open the app.</div>';
 };
 $('about-close').onclick = () => $('aboutbg').classList.remove('show');
 $('aboutbg').addEventListener('mousedown', e => {

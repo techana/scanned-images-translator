@@ -21,3 +21,4 @@ HANDOVER.md
 # misc
 __pycache__/
 .DS_Store
+launcher.log

@@ -1,0 +1,52 @@
+#!/bin/bash
+# Images Translator — double-click launcher (macOS)
+#
+# Lives at  <repo>/Images Translator.app/Contents/MacOS/launcher
+# so the repo root is three levels up from this file.
+#
+# Finder launches apps with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+# which finds Apple's /usr/bin/python3 — usually NOT the interpreter the
+# dependencies were installed into.  So we try the likely interpreters and
+# pick the first one that can actually import them.
+
+REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$REPO" || exit 1
+
+alert() {   # $1 = message
+  /usr/bin/osascript -e "display alert \"Images Translator\" message \"$1\"" \
+      >/dev/null 2>&1
+}
+
+find_python() {
+  local c
+  for c in /opt/homebrew/bin/python3 /usr/local/bin/python3 \
+           "$(command -v python3 2>/dev/null)" /usr/bin/python3; do
+    [ -n "$c" ] && [ -x "$c" ] || continue
+    if "$c" -c "import PIL" >/dev/null 2>&1; then
+      echo "$c"; return 0
+    fi
+  done
+  return 1
+}
+
+PY="$(find_python)"
+if [ -z "$PY" ]; then
+  ANY="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
+  if [ ! -x "$ANY" ]; then
+    alert "Python 3 was not found.\n\nInstall it from python.org or run:\n  xcode-select --install"
+  else
+    alert "The required Python packages are missing.\n\nOpen Terminal in this folder and run:\n  pip3 install -r requirements.txt"
+  fi
+  exit 1
+fi
+
+# Keep a log so a crash after startup is diagnosable (the app has no console).
+LOG="$REPO/launcher.log"
+"$PY" gui.py >"$LOG" 2>&1
+STATUS=$?
+
+if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 130 ]; then   # 130 = Ctrl-C / quit
+  TAIL="$(tail -n 8 "$LOG" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  alert "The app stopped unexpectedly.\n\n$TAIL\n\nFull log: launcher.log"
+fi
+exit "$STATUS"

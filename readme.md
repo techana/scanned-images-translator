@@ -91,7 +91,16 @@ engine, languages and translator any time in **Files ▾ → Settings…**
 
 ## Using it
 
-**The editor:**
+**On a Mac, just double-click `Images Translator.app`** in this folder —
+no Terminal needed. It starts the app and opens it in your browser. To
+stop it, choose **Files ▾ → Quit**.
+
+> First time only: if macOS says the app "cannot be opened because it is
+> from an unidentified developer", right-click it once and choose
+> **Open** → **Open**. (That only happens if you downloaded the project
+> as a ZIP; a `git clone` isn't flagged.)
+
+Or start it from a terminal — on any platform:
 
 ```bash
 python3 gui.py
