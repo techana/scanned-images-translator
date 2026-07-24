@@ -46,6 +46,9 @@
   #bgmenu div, #colormenu div, #patchmenu div { padding: 8px 14px; cursor: pointer;
                                 white-space: nowrap; }
   #bgmenu div:hover, #colormenu div:hover, #patchmenu div:hover { background: #4a4d53; }
+  #patchmenu #patch-create { display: flex; justify-content: space-between;
+                             gap: 18px; }
+  #patchmenu .kbd { color: #8a8f98; }
   #colormenu .csw { display: inline-block; width: 13px; height: 13px;
       border-radius: 3px; border: 1px solid #888; vertical-align: -2px;
       margin-right: 8px; }
@@ -188,7 +191,7 @@
       Patch<span class="sw" id="patchswatch"></span> ▾
     </button>
     <div id="patchmenu">
-      <div id="patch-create">Create</div>
+      <div id="patch-create">Create <span class="kbd">⌘P</span></div>
       <div id="patch-white">White Color</div>
       <div id="patch-pick">Pick a Color</div>
     </div>
@@ -699,6 +702,13 @@ document.addEventListener('keydown', e => {
       && selected) {
     e.preventDefault();
     toggleBold();
+    return;
+  }
+  // ⌘P starts a patch rectangle (overrides the browser's print dialog)
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'p' || e.keyCode === 80)
+      && !$('patchbtn').disabled) {
+    e.preventDefault();
+    setPatchDraw(true);
     return;
   }
   // ⌘+/⌘- font size; ⇧⌘+/⇧⌘- line spacing (browser zoom untouched
