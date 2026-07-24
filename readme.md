@@ -137,6 +137,10 @@ Output lands next to the inputs as `<page>_<language>.png`.
   (LSTM, since v4) and is a solid portable fallback for Linux, Windows
   and older macOS, but expect rougher OCR on grainy scans, which means
   more fixing up by hand in the editor.
+- **Copy and paste elements** with ⌘C / ⌘V (Ctrl on Linux and Windows).
+  Works on the selected text box or patch rectangle: the duplicate keeps
+  everything — text, size, font, colours, alignment — and lands wherever
+  the mouse is pointing. Handy for repeating a caption style down a page.
 - OCR and translation results are cached per page in `images_translator.cache/` — edits
   live there too, and re-rendering a full book takes seconds.
 - `./ocr --list-langs` and `./translate --list-langs` show every language
