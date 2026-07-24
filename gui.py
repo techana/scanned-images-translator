@@ -10,7 +10,7 @@ Serves a single-page editor at http://localhost:<port>:
     block, font-size dropdown in the top bar for the selected block
 
 Edits are saved back into the page's cache JSON
-(<outdir>/image_translator.cache/<stem>.json),
+(<outdir>/images_translator.cache/<stem>.json),
 but ONLY for blocks the user actually touched:
   blk["en"]       - edited translation
   blk["gui_bbox"] - block rectangle as resized in the GUI

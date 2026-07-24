@@ -29,6 +29,9 @@
   #pageinput { width: 52px; text-align: right;
       font-variant-numeric: tabular-nums; }
   #boldbtn.on { outline: 2px solid #6f9dff; }
+  #fmtbtn.on { outline: 2px solid #6f9dff; }
+  /* while the format painter is armed, every text box is a target */
+  #overlay.painting .block { cursor: copy; }
   #bgbtn, #colorbtn, #patchbtn { padding: 4px 8px; }
   #patchbtn.active { outline: 2px solid #6f9dff; }
   #topbar .sw { display: inline-block; width: 13px; height: 13px;
@@ -167,6 +170,8 @@
   <label class="ctl" title="Line spacing — ⇧⌘+ / ⇧⌘-">Spacing
     <input type="number" id="linespace" min="0.5" max="3" step="0.1" disabled>
   </label>
+  <button id="fmtbtn"
+          title="Copy formatting: pick a text box, then click others to apply (Esc to stop)">Ƒ</button>
   <button id="boldbtn" disabled title="Bold (⌘B)"><b>B</b></button>
   <button id="alignleft" disabled title="Align text left">⍇</button>
   <button id="alignright" disabled title="Align text right">⍈</button>
@@ -692,7 +697,8 @@ document.addEventListener('keydown', e => {
     e.preventDefault(); savePage(); return;
   }
   if (e.key === 'Escape') {
-    if (picking) setPicking(false);
+    if (fmtPainter) setPainter(null);
+    else if (picking) setPicking(false);
     else if (patchDrawMode) setPatchDraw(false);
     else if (patchPicking) { patchPicking = false;
                              $('viewport').style.cursor = ''; setStatus(''); }
@@ -822,6 +828,45 @@ function toggleBold(force) {
   scheduleSave();
 }
 $('boldbtn').onclick = () => toggleBold();
+
+// ------------------------------------------------- format painter (Ƒ)
+// Copies the active box's look (size, spacing, bold, colour, background)
+// and applies it to every text box clicked until Ƒ or Esc turns it off.
+let fmtPainter = null;
+
+function setPainter(props) {
+  fmtPainter = props;
+  $('fmtbtn').classList.toggle('on', !!props);
+  $('overlay').classList.toggle('painting', !!props);
+  if (props) setStatus('Formatting copied — click text boxes to apply '
+                     + '(Ƒ or Esc to stop)');
+  else setStatus('');
+}
+
+$('fmtbtn').onclick = () => {
+  if (fmtPainter) { setPainter(null); return; }
+  if (!selected) {
+    setStatus('Select a text box first to copy its formatting', true);
+    return;
+  }
+  setPainter({font_px: selected.font_px, line_spacing: selected.line_spacing,
+              bold: !!selected.bold, color: selected.color, bg: selected.bg});
+};
+
+function applyFormat(blk) {
+  const p = fmtPainter;
+  if (!p) return;
+  Object.assign(blk, {font_px: p.font_px, line_spacing: p.line_spacing,
+                      bold: p.bold, color: p.color, bg: p.bg});
+  Object.assign(blk._txt.style, {fontSize: p.font_px + 'px',
+                                 lineHeight: p.line_spacing,
+                                 fontWeight: p.bold ? 'bold' : 'normal',
+                                 color: p.color, background: p.bg});
+  blk._patches.forEach(d => d.style.background = p.bg);
+  clearPatches(blk);          // size/spacing changed the text extent
+  updateOverflow(blk);
+  scheduleSave();
+}
 
 // Bind BOTH 'input' and 'change': some engines (WebKit) fire only
 // 'change' for spinner / arrow-key stepping on number inputs, which
@@ -1342,6 +1387,12 @@ function addBlockDom(blk) {
 
   div.addEventListener('mousedown', e => {
     if (txt.isContentEditable) return;
+    if (fmtPainter) {             // painter armed: paste the look instead
+      e.preventDefault();
+      e.stopPropagation();
+      applyFormat(blk);
+      return;
+    }
     select(blk);
     startMove(e, blk);            // handles stopPropagation, so this is
   });                             // only reached from the block body

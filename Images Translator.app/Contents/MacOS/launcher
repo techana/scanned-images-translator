@@ -45,7 +45,11 @@ LOG="$REPO/launcher.log"
 "$PY" gui.py >"$LOG" 2>&1
 STATUS=$?
 
-if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 130 ]; then   # 130 = Ctrl-C / quit
+# Only a genuine failure gets an alert.  Exit codes >= 128 mean the process
+# was stopped by a signal (130 Ctrl-C, 143 TERM, 137 KILL) — that is someone
+# stopping the app, not a crash, and alerting there would leave a modal
+# dialog holding the app "running" so it could not be relaunched.
+if [ "$STATUS" -ne 0 ] && [ "$STATUS" -lt 128 ]; then
   TAIL="$(tail -n 8 "$LOG" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g')"
   alert "The app stopped unexpectedly.\n\n$TAIL\n\nFull log: launcher.log"
 fi

@@ -137,7 +137,7 @@ Output lands next to the inputs as `<page>_<language>.png`.
   (LSTM, since v4) and is a solid portable fallback for Linux, Windows
   and older macOS, but expect rougher OCR on grainy scans, which means
   more fixing up by hand in the editor.
-- OCR and translation results are cached per page in `image_translator.cache/` — edits
+- OCR and translation results are cached per page in `images_translator.cache/` — edits
   live there too, and re-rendering a full book takes seconds.
 - `./ocr --list-langs` and `./translate --list-langs` show every language
   your machine supports.

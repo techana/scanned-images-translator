@@ -1074,7 +1074,9 @@ def save_pdf(img, path, fmt, blocks):
     doc.close()
 
 
-CACHE_DIRNAME = "image_translator.cache"
+CACHE_DIRNAME = "images_translator.cache"
+# older names, migrated on first use so no work is ever lost
+LEGACY_CACHE_DIRNAMES = (".cache", "image_translator.cache")
 # Browsers can't display JPEG-2000/TIFF/BMP, and the editor previews pages
 # in a browser, so those are converted once — into the cache folder, never
 # beside the user's scans.  (OCR and rendering read .jp2 natively.)
@@ -1090,10 +1092,12 @@ def cache_dir(out_dir):
     d = out_dir / CACHE_DIRNAME
     if d.is_dir():
         return d
-    legacy = out_dir / ".cache"
-    if legacy.is_dir():
-        log(f"  migrating .cache/ -> {CACHE_DIRNAME}/")
-        legacy.rename(d)
+    for name in LEGACY_CACHE_DIRNAMES:
+        legacy = out_dir / name
+        if legacy.is_dir():
+            log(f"  migrating {name}/ -> {CACHE_DIRNAME}/")
+            legacy.rename(d)
+            break
     else:
         d.mkdir(parents=True, exist_ok=True)
     for old in list(out_dir.glob("*_jp.png")):   # tidy old conversions away
