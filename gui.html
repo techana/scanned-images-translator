@@ -1655,9 +1655,11 @@ function startResize(e, blk, dir) {
 
 // ------------------------------------------------------------ saving
 
+// Edits are streamed to the page cache in the background. This is
+// bookkeeping, not something the user asked for, so it happens silently —
+// only a genuine failure is worth interrupting them for.
 function scheduleSave() {
   savePending = true;
-  setStatus('Editing…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(doSave, 700);
 }
@@ -1683,7 +1685,7 @@ async function doSave() {
     if (b.bg !== b._orig.bg) e.bg = b.bg;
     if (Object.keys(e).length > 1) edits.push(e);
   }
-  if (!edits.length) { setStatus(''); return; }
+  if (!edits.length) return;
   try {
     const r = await fetch('/api/page/' + cur + '/save', {method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1695,8 +1697,7 @@ async function doSave() {
       b._orig = {en: b.en, bbox: JSON.stringify(b.bbox), font: b.font_px,
                  ls: b.line_spacing, color: b.color, bg: b.bg,
                  align: b.align, bold: !!b.bold};
-    setStatus('Saved');
-    setTimeout(() => { if ($('status').textContent === 'Saved') setStatus(''); }, 1500);
+    // (no status message — see scheduleSave)
   } catch (e) { setStatus('Save failed: ' + e.message, true); }
 }
 
